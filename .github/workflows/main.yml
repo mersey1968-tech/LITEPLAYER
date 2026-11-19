@@ -20,4 +20,4 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: LitePlayer-apk
-          path: proj/app/build/outputs/apk/debug/a
+          path: proj/app/build/outputs/apk/debug/app-debug.apk
