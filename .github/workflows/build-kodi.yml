@@ -65,7 +65,7 @@ on:
 
 jobs:
   build:
-    name: Build ${{ (github.event.inputs.app_name || 'LitePlayer') || 'LitePlayer' }} (${{ (github.event.inputs.branch || 'Omega') || 'Omega' }})
+    name: Build ${{ github.event.inputs.app_name || 'LitePlayer' }} (${{ github.event.inputs.branch || 'Omega' }})
     runs-on: ubuntu-22.04
     timeout-minutes: 180
     permissions:
@@ -102,7 +102,7 @@ jobs:
       - name: Parse ABI selection
         id: abi
         run: |
-          RAW="${{ (github.event.inputs.abi || 'arm64-v8a') || 'arm64-v8a' }}"
+          RAW="${{ github.event.inputs.abi || 'arm64-v8a' }}"
           ABI="${RAW%% *}"
           echo "value=$ABI" >> $GITHUB_OUTPUT
           case "$ABI" in
@@ -165,7 +165,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ~/kodi
-          key: kodi-src-${{ (github.event.inputs.branch || 'Omega') || 'Omega' }}-${{ hashFiles('.github/workflows/build-kodi.yml') }}
+          key: kodi-src-${{ github.event.inputs.branch || 'Omega' }}-${{ hashFiles('.github/workflows/build-kodi.yml') }}
 
       - name: Clone / update Kodi source
         run: |
@@ -173,14 +173,14 @@ jobs:
           if [ -d ~/kodi/.git ]; then
             echo "📦 Updating existing source..."
             git -C ~/kodi fetch origin
-            git -C ~/kodi checkout ${{ (github.event.inputs.branch || 'Omega') || 'Omega' }}
+            git -C ~/kodi checkout ${{ github.event.inputs.branch || 'Omega' }}
             # Ensure cached source is deterministic and not carrying prior run patches
-            git -C ~/kodi reset --hard "origin/${{ (github.event.inputs.branch || 'Omega') || 'Omega' }}"
+            git -C ~/kodi reset --hard "origin/${{ github.event.inputs.branch || 'Omega' }}"
             git -C ~/kodi clean -fd
           else
-            echo "📦 Cloning Kodi ${{ (github.event.inputs.branch || 'Omega') || 'Omega' }}..."
+            echo "📦 Cloning Kodi ${{ github.event.inputs.branch || 'Omega' }}..."
             git clone --depth=1 \
-              -b ${{ (github.event.inputs.branch || 'Omega') || 'Omega' }} \
+              -b ${{ github.event.inputs.branch || 'Omega' }} \
               https://github.com/xbmc/xbmc ~/kodi
           fi
           echo "✅ Source ready ($(git -C ~/kodi rev-parse --short HEAD))"
@@ -274,7 +274,7 @@ jobs:
       - name: Apply custom app name
         if: (github.event.inputs.app_name || 'LitePlayer') != 'Kodi'
         run: |
-          APP="${{ (github.event.inputs.app_name || 'LitePlayer') || 'LitePlayer' }}"
+          APP="${{ github.event.inputs.app_name || 'LitePlayer' }}"
           echo "🎨 Renaming app to: $APP"
           find ~/kodi/tools/android/packaging -type f -name "*.xml" -o -name "*.gradle" | \
             xargs sed -i "s|>Kodi<|>$APP<|g; s|\"Kodi\"|\"$APP\"|g" 2>/dev/null || true
@@ -282,7 +282,7 @@ jobs:
       - name: Apply custom package ID
         if: (github.event.inputs.package_id || 'com.example.liteplayer') != 'org.xbmc.kodi'
         run: |
-          PKG="${{ (github.event.inputs.package_id || 'com.example.liteplayer') || 'com.example.liteplayer' }}"
+          PKG="${{ github.event.inputs.package_id || 'com.example.liteplayer' }}"
           echo "📦 Setting package ID: $PKG"
           find ~/kodi/tools/android/packaging -type f | \
             xargs sed -i "s|org\.xbmc\.kodi|$PKG|g" 2>/dev/null || true
@@ -472,7 +472,7 @@ jobs:
 
       - name: Bake in guisettings.xml (unknown sources + any user overrides)
         run: |
-          UNKNOWN="${{ (github.event.inputs.unknown_sources || 'true') || 'true' }}"
+          UNKNOWN="${{ github.event.inputs.unknown_sources || 'true' }}"
 
           # Kodi generates guisettings.xml from scratch on first launch using the
           # default values defined in system/settings/settings.xml. It does NOT
@@ -518,14 +518,14 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ~/kodi-tarballs
-          key: kodi-tarballs-${{ (github.event.inputs.branch || 'Omega') || 'Omega' }}-v1
+          key: kodi-tarballs-${{ github.event.inputs.branch || 'Omega' }}-v1
 
       - name: Cache Kodi depends
         id: depends-cache
         uses: actions/cache@v5
         with:
           path: ~/kodi-depends
-          key: kodi-depends-${{ (github.event.inputs.branch || 'Omega') || 'Omega' }}-${{ steps.abi.outputs.value }}-v20
+          key: kodi-depends-${{ github.event.inputs.branch || 'Omega' }}-${{ steps.abi.outputs.value }}-v20
 
       - name: Configure and build Kodi depends
         run: |
@@ -1030,10 +1030,10 @@ jobs:
           APK="${{ steps.locate.outputs.apk_path }}"
           [ -z "$APK" ] && echo "❌ No APK path from locate step!" && exit 1
 
-          APP="${{ (github.event.inputs.app_name || 'LitePlayer') || 'LitePlayer' }}"
-          BRANCH="${{ (github.event.inputs.branch || 'Omega') || 'Omega' }}"
+          APP="${{ github.event.inputs.app_name || 'LitePlayer' }}"
+          BRANCH="${{ github.event.inputs.branch || 'Omega' }}"
           ABI="${{ steps.abi.outputs.value }}"
-          CUSTOM="${{ (github.event.inputs.apk_filename || 'LitePlayer') || 'LitePlayer' }}"
+          CUSTOM="${{ github.event.inputs.apk_filename || 'LitePlayer' }}"
 
           # Use custom filename if provided, otherwise auto-generate from app name
           if [ -n "$CUSTOM" ]; then
@@ -1074,16 +1074,16 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           tag_name: build-${{ github.run_number }}
-          name: "${{ (github.event.inputs.app_name || 'LitePlayer') || 'LitePlayer' }} ${{ (github.event.inputs.branch || 'Omega') || 'Omega' }} — Build #${{ github.run_number }}"
+          name: "${{ github.event.inputs.app_name || 'LitePlayer' }} ${{ github.event.inputs.branch || 'Omega' }} — Build #${{ github.run_number }}"
           body: |
             ## Custom Kodi APK
 
             | Setting | Value |
             |---------|-------|
-            | Kodi branch | `${{ (github.event.inputs.branch || 'Omega') || 'Omega' }}` |
-            | App name | ${{ (github.event.inputs.app_name || 'LitePlayer') || 'LitePlayer' }} |
+            | Kodi branch | `${{ github.event.inputs.branch || 'Omega' }}` |
+            | App name | ${{ github.event.inputs.app_name || 'LitePlayer' }} |
             | APK filename | `${{ steps.sign.outputs.apk_name }}` |
-            | Package ID | `${{ (github.event.inputs.package_id || 'com.example.liteplayer') || 'com.example.liteplayer' }}` |
+            | Package ID | `${{ github.event.inputs.package_id || 'com.example.liteplayer' }}` |
             | Target ABI | `${{ steps.abi.outputs.value }}` |
             | Unknown sources | ${{ (github.event.inputs.unknown_sources || 'true') == 'true' && 'Pre-enabled' || 'Default (off)' }} |
             | Built | ${{ github.run_number }} |
@@ -1111,8 +1111,8 @@ jobs:
           cp -f ~/kodi-build.log "$OUT/" 2>/dev/null || true
           cp -f ~/apk-package.log "$OUT/" 2>/dev/null || true
           {
-            echo "branch=${{ (github.event.inputs.branch || 'Omega') || 'Omega' }}"
-            echo "abi=${{ (github.event.inputs.abi || 'arm64-v8a') || 'arm64-v8a' }}"
+            echo "branch=${{ github.event.inputs.branch || 'Omega' }}"
+            echo "abi=${{ github.event.inputs.abi || 'arm64-v8a' }}"
             echo "run_id=${{ github.run_id }}"
             echo "run_number=${{ github.run_number }}"
             echo "workflow=${{ github.workflow }}"
