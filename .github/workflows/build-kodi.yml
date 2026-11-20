@@ -1,6 +1,10 @@
 name: 🎬 Build Kodi APK
 
 on:
+  push:
+    branches: [kodi-native-prototype]
+    paths:
+      - '.github/workflows/build-kodi.yml'
   workflow_dispatch:
     inputs:
       branch:
