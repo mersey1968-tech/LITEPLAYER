@@ -37,7 +37,7 @@ on:
       apk_filename:
         description: 'APK file name (without .apk — leave blank to auto-generate)'
         required: false
-        default: 'LitePlayer'
+        default: 'Kodi'
       unknown_sources:
         description: 'Pre-enable Unknown sources (Settings > System > Add-ons)'
         required: true
@@ -1033,7 +1033,7 @@ jobs:
           APP="${{ github.event.inputs.app_name || 'LitePlayer' }}"
           BRANCH="${{ github.event.inputs.branch || 'Omega' }}"
           ABI="${{ steps.abi.outputs.value }}"
-          CUSTOM="${{ github.event.inputs.apk_filename || 'LitePlayer' }}"
+          CUSTOM="${{ github.event.inputs.apk_filename || 'Kodi' }}"
 
           # Use custom filename if provided, otherwise auto-generate from app name
           if [ -n "$CUSTOM" ]; then
