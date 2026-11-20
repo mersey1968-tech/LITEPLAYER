@@ -29,7 +29,7 @@ on:
       app_name:
         description: 'App display name (shown on launcher)'
         required: true
-        default: 'LitePlayer'
+        default: 'Kodi'
       package_id:
         description: 'Android package ID (change to install alongside official Kodi)'
         required: true
@@ -65,7 +65,7 @@ on:
 
 jobs:
   build:
-    name: Build ${{ github.event.inputs.app_name || 'LitePlayer' }} (${{ github.event.inputs.branch || 'Omega' }})
+    name: Build ${{ github.event.inputs.app_name || 'Kodi' }} (${{ github.event.inputs.branch || 'Omega' }})
     runs-on: ubuntu-22.04
     timeout-minutes: 180
     permissions:
@@ -272,9 +272,9 @@ jobs:
           grep -n "CopyUserDataIfNeeded\|Util.h" "$PLATFORM_CPP" || true
 
       - name: Apply custom app name
-        if: (github.event.inputs.app_name || 'LitePlayer') != 'Kodi'
+        if: (github.event.inputs.app_name || 'Kodi') != 'Kodi'
         run: |
-          APP="${{ github.event.inputs.app_name || 'LitePlayer' }}"
+          APP="${{ github.event.inputs.app_name || 'Kodi' }}"
           echo "🎨 Renaming app to: $APP"
           find ~/kodi/tools/android/packaging -type f -name "*.xml" -o -name "*.gradle" | \
             xargs sed -i "s|>Kodi<|>$APP<|g; s|\"Kodi\"|\"$APP\"|g" 2>/dev/null || true
@@ -1030,7 +1030,7 @@ jobs:
           APK="${{ steps.locate.outputs.apk_path }}"
           [ -z "$APK" ] && echo "❌ No APK path from locate step!" && exit 1
 
-          APP="${{ github.event.inputs.app_name || 'LitePlayer' }}"
+          APP="${{ github.event.inputs.app_name || 'Kodi' }}"
           BRANCH="${{ github.event.inputs.branch || 'Omega' }}"
           ABI="${{ steps.abi.outputs.value }}"
           CUSTOM="${{ github.event.inputs.apk_filename || 'Kodi' }}"
@@ -1074,14 +1074,14 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           tag_name: build-${{ github.run_number }}
-          name: "${{ github.event.inputs.app_name || 'LitePlayer' }} ${{ github.event.inputs.branch || 'Omega' }} — Build #${{ github.run_number }}"
+          name: "${{ github.event.inputs.app_name || 'Kodi' }} ${{ github.event.inputs.branch || 'Omega' }} — Build #${{ github.run_number }}"
           body: |
             ## Custom Kodi APK
 
             | Setting | Value |
             |---------|-------|
             | Kodi branch | `${{ github.event.inputs.branch || 'Omega' }}` |
-            | App name | ${{ github.event.inputs.app_name || 'LitePlayer' }} |
+            | App name | ${{ github.event.inputs.app_name || 'Kodi' }} |
             | APK filename | `${{ steps.sign.outputs.apk_name }}` |
             | Package ID | `${{ github.event.inputs.package_id || 'com.kodi' }}` |
             | Target ABI | `${{ steps.abi.outputs.value }}` |
