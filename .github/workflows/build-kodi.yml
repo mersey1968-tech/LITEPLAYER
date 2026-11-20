@@ -65,7 +65,7 @@ on:
 
 jobs:
   build:
-    name: Build ${{ github.event.inputs.app_name }} (${{ github.event.inputs.branch }})
+    name: Build ${{ (github.event.inputs.app_name || 'LitePlayer') || 'LitePlayer' }} (${{ (github.event.inputs.branch || 'Omega') || 'Omega' }})
     runs-on: ubuntu-22.04
     timeout-minutes: 180
     permissions:
@@ -80,7 +80,7 @@ jobs:
           echo "WORKFLOW_REV=2026-05-04-keystore-failsafe-v2"
 
       - name: Diagnostic preflight
-        if: github.event.inputs.debug_mode == 'true'
+        if: (github.event.inputs.debug_mode || 'false') == 'true'
         run: |
           set -euo pipefail
           echo "=== Runner / system ==="
@@ -102,7 +102,7 @@ jobs:
       - name: Parse ABI selection
         id: abi
         run: |
-          RAW="${{ github.event.inputs.abi }}"
+          RAW="${{ (github.event.inputs.abi || 'arm64-v8a') || 'arm64-v8a' }}"
           ABI="${RAW%% *}"
           echo "value=$ABI" >> $GITHUB_OUTPUT
           case "$ABI" in
@@ -165,7 +165,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ~/kodi
-          key: kodi-src-${{ github.event.inputs.branch }}-${{ hashFiles('.github/workflows/build-kodi.yml') }}
+          key: kodi-src-${{ (github.event.inputs.branch || 'Omega') || 'Omega' }}-${{ hashFiles('.github/workflows/build-kodi.yml') }}
 
       - name: Clone / update Kodi source
         run: |
@@ -173,14 +173,14 @@ jobs:
           if [ -d ~/kodi/.git ]; then
             echo "📦 Updating existing source..."
             git -C ~/kodi fetch origin
-            git -C ~/kodi checkout ${{ github.event.inputs.branch }}
+            git -C ~/kodi checkout ${{ (github.event.inputs.branch || 'Omega') || 'Omega' }}
             # Ensure cached source is deterministic and not carrying prior run patches
-            git -C ~/kodi reset --hard "origin/${{ github.event.inputs.branch }}"
+            git -C ~/kodi reset --hard "origin/${{ (github.event.inputs.branch || 'Omega') || 'Omega' }}"
             git -C ~/kodi clean -fd
           else
-            echo "📦 Cloning Kodi ${{ github.event.inputs.branch }}..."
+            echo "📦 Cloning Kodi ${{ (github.event.inputs.branch || 'Omega') || 'Omega' }}..."
             git clone --depth=1 \
-              -b ${{ github.event.inputs.branch }} \
+              -b ${{ (github.event.inputs.branch || 'Omega') || 'Omega' }} \
               https://github.com/xbmc/xbmc ~/kodi
           fi
           echo "✅ Source ready ($(git -C ~/kodi rev-parse --short HEAD))"
@@ -272,17 +272,17 @@ jobs:
           grep -n "CopyUserDataIfNeeded\|Util.h" "$PLATFORM_CPP" || true
 
       - name: Apply custom app name
-        if: github.event.inputs.app_name != 'Kodi'
+        if: (github.event.inputs.app_name || 'LitePlayer') != 'Kodi'
         run: |
-          APP="${{ github.event.inputs.app_name }}"
+          APP="${{ (github.event.inputs.app_name || 'LitePlayer') || 'LitePlayer' }}"
           echo "🎨 Renaming app to: $APP"
           find ~/kodi/tools/android/packaging -type f -name "*.xml" -o -name "*.gradle" | \
             xargs sed -i "s|>Kodi<|>$APP<|g; s|\"Kodi\"|\"$APP\"|g" 2>/dev/null || true
 
       - name: Apply custom package ID
-        if: github.event.inputs.package_id != 'org.xbmc.kodi'
+        if: (github.event.inputs.package_id || 'com.example.liteplayer') != 'org.xbmc.kodi'
         run: |
-          PKG="${{ github.event.inputs.package_id }}"
+          PKG="${{ (github.event.inputs.package_id || 'com.example.liteplayer') || 'com.example.liteplayer' }}"
           echo "📦 Setting package ID: $PKG"
           find ~/kodi/tools/android/packaging -type f | \
             xargs sed -i "s|org\.xbmc\.kodi|$PKG|g" 2>/dev/null || true
@@ -472,7 +472,7 @@ jobs:
 
       - name: Bake in guisettings.xml (unknown sources + any user overrides)
         run: |
-          UNKNOWN="${{ github.event.inputs.unknown_sources }}"
+          UNKNOWN="${{ (github.event.inputs.unknown_sources || 'true') || 'true' }}"
 
           # Kodi generates guisettings.xml from scratch on first launch using the
           # default values defined in system/settings/settings.xml. It does NOT
@@ -518,14 +518,14 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ~/kodi-tarballs
-          key: kodi-tarballs-${{ github.event.inputs.branch }}-v1
+          key: kodi-tarballs-${{ (github.event.inputs.branch || 'Omega') || 'Omega' }}-v1
 
       - name: Cache Kodi depends
         id: depends-cache
         uses: actions/cache@v5
         with:
           path: ~/kodi-depends
-          key: kodi-depends-${{ github.event.inputs.branch }}-${{ steps.abi.outputs.value }}-v20
+          key: kodi-depends-${{ (github.event.inputs.branch || 'Omega') || 'Omega' }}-${{ steps.abi.outputs.value }}-v20
 
       - name: Configure and build Kodi depends
         run: |
@@ -1030,10 +1030,10 @@ jobs:
           APK="${{ steps.locate.outputs.apk_path }}"
           [ -z "$APK" ] && echo "❌ No APK path from locate step!" && exit 1
 
-          APP="${{ github.event.inputs.app_name }}"
-          BRANCH="${{ github.event.inputs.branch }}"
+          APP="${{ (github.event.inputs.app_name || 'LitePlayer') || 'LitePlayer' }}"
+          BRANCH="${{ (github.event.inputs.branch || 'Omega') || 'Omega' }}"
           ABI="${{ steps.abi.outputs.value }}"
-          CUSTOM="${{ github.event.inputs.apk_filename }}"
+          CUSTOM="${{ (github.event.inputs.apk_filename || 'LitePlayer') || 'LitePlayer' }}"
 
           # Use custom filename if provided, otherwise auto-generate from app name
           if [ -n "$CUSTOM" ]; then
@@ -1070,22 +1070,22 @@ jobs:
           retention-days: 30
 
       - name: Publish GitHub Release
-        if: github.event.inputs.create_release == 'true'
+        if: (github.event.inputs.create_release || 'false') == 'true'
         uses: softprops/action-gh-release@v3
         with:
           tag_name: build-${{ github.run_number }}
-          name: "${{ github.event.inputs.app_name }} ${{ github.event.inputs.branch }} — Build #${{ github.run_number }}"
+          name: "${{ (github.event.inputs.app_name || 'LitePlayer') || 'LitePlayer' }} ${{ (github.event.inputs.branch || 'Omega') || 'Omega' }} — Build #${{ github.run_number }}"
           body: |
             ## Custom Kodi APK
 
             | Setting | Value |
             |---------|-------|
-            | Kodi branch | `${{ github.event.inputs.branch }}` |
-            | App name | ${{ github.event.inputs.app_name }} |
+            | Kodi branch | `${{ (github.event.inputs.branch || 'Omega') || 'Omega' }}` |
+            | App name | ${{ (github.event.inputs.app_name || 'LitePlayer') || 'LitePlayer' }} |
             | APK filename | `${{ steps.sign.outputs.apk_name }}` |
-            | Package ID | `${{ github.event.inputs.package_id }}` |
+            | Package ID | `${{ (github.event.inputs.package_id || 'com.example.liteplayer') || 'com.example.liteplayer' }}` |
             | Target ABI | `${{ steps.abi.outputs.value }}` |
-            | Unknown sources | ${{ github.event.inputs.unknown_sources == 'true' && 'Pre-enabled' || 'Default (off)' }} |
+            | Unknown sources | ${{ (github.event.inputs.unknown_sources || 'true') == 'true' && 'Pre-enabled' || 'Default (off)' }} |
             | Built | ${{ github.run_number }} |
 
             ### Install
@@ -1100,7 +1100,7 @@ jobs:
           prerelease: false
 
       - name: Collect diagnostic bundle
-        if: always() && github.event.inputs.debug_mode == 'true'
+        if: always() && (github.event.inputs.debug_mode || 'false') == 'true'
         run: |
           set -euo pipefail
           OUT=/tmp/kodi-build-diagnostics
@@ -1111,8 +1111,8 @@ jobs:
           cp -f ~/kodi-build.log "$OUT/" 2>/dev/null || true
           cp -f ~/apk-package.log "$OUT/" 2>/dev/null || true
           {
-            echo "branch=${{ github.event.inputs.branch }}"
-            echo "abi=${{ github.event.inputs.abi }}"
+            echo "branch=${{ (github.event.inputs.branch || 'Omega') || 'Omega' }}"
+            echo "abi=${{ (github.event.inputs.abi || 'arm64-v8a') || 'arm64-v8a' }}"
             echo "run_id=${{ github.run_id }}"
             echo "run_number=${{ github.run_number }}"
             echo "workflow=${{ github.workflow }}"
@@ -1129,7 +1129,7 @@ jobs:
           tar -czf /tmp/kodi-build-diagnostics.tgz -C /tmp kodi-build-diagnostics
 
       - name: Upload diagnostics artifact
-        if: always() && github.event.inputs.debug_mode == 'true'
+        if: always() && (github.event.inputs.debug_mode || 'false') == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: kodi-build-diagnostics-${{ github.run_number }}
