@@ -1,0 +1,50 @@
+name: Repackage Kodi APK (no native rebuild)
+on:
+  push:
+    branches: [kodi-native-prototype]
+    paths: ['.github/workflows/repackage-kodi.yml']
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+jobs:
+  repackage:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Install APK repackaging tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq apktool zipalign apksigner unzip
+      - name: Download previously compiled Kodi APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api repos/${{ github.repository }}/actions/artifacts/14678984460/zip > original.zip
+          unzip -o original.zip -d original
+          find original -type f -name '*.apk' -print
+          cp "$(find original -type f -name '*.apk' | head -1)" original.apk
+      - name: Decode and set unique application ID
+        run: |
+          apktool d -f -s original.apk -o decoded
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('decoded/AndroidManifest.xml')
+          s=p.read_text()
+          assert 'package="org.xbmc.kodi"' in s, 'Unexpected source package'
+          s=s.replace('package="org.xbmc.kodi"','package="com.kodi.liteplayer"',1)
+          p.write_text(s)
+          PY
+          apktool b decoded -o unsigned.apk
+      - name: Align and sign APK
+        run: |
+          zipalign -f -p 4 unsigned.apk aligned.apk
+          keytool -genkeypair -keystore kodi-repack.jks -storepass android -keypass android -alias kodi -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Kodi Separate Install" -noprompt
+          apksigner sign --ks kodi-repack.jks --ks-key-alias kodi --ks-pass pass:android --key-pass pass:android --out Kodi.apk aligned.apk
+          apksigner verify --verbose Kodi.apk
+          unzip -p Kodi.apk AndroidManifest.xml | strings | head -15
+      - name: Upload standalone APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kodi-separate-install
+          path: Kodi.apk
+          retention-days: 30
