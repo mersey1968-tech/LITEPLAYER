@@ -33,7 +33,7 @@ on:
       package_id:
         description: 'Android package ID (change to install alongside official Kodi)'
         required: true
-        default: 'com.kodi'
+        default: 'com.kodi.liteplayer'
       apk_filename:
         description: 'APK file name (without .apk — leave blank to auto-generate)'
         required: false
@@ -280,9 +280,9 @@ jobs:
             xargs sed -i "s|>Kodi<|>$APP<|g; s|\"Kodi\"|\"$APP\"|g" 2>/dev/null || true
 
       - name: Apply custom package ID
-        if: (github.event.inputs.package_id || 'com.kodi') != 'org.xbmc.kodi'
+        if: (github.event.inputs.package_id || 'com.kodi.liteplayer') != 'org.xbmc.kodi'
         run: |
-          PKG="${{ github.event.inputs.package_id || 'com.kodi' }}"
+          PKG="${{ github.event.inputs.package_id || 'com.kodi.liteplayer' }}"
           echo "📦 Setting package ID: $PKG"
           find ~/kodi/tools/android/packaging -type f | \
             xargs sed -i "s|org\.xbmc\.kodi|$PKG|g" 2>/dev/null || true
@@ -1083,7 +1083,7 @@ jobs:
             | Kodi branch | `${{ github.event.inputs.branch || 'Omega' }}` |
             | App name | ${{ github.event.inputs.app_name || 'Kodi' }} |
             | APK filename | `${{ steps.sign.outputs.apk_name }}` |
-            | Package ID | `${{ github.event.inputs.package_id || 'com.kodi' }}` |
+            | Package ID | `${{ github.event.inputs.package_id || 'com.kodi.liteplayer' }}` |
             | Target ABI | `${{ steps.abi.outputs.value }}` |
             | Unknown sources | ${{ (github.event.inputs.unknown_sources || 'true') == 'true' && 'Pre-enabled' || 'Default (off)' }} |
             | Built | ${{ github.run_number }} |
