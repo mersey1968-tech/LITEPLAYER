@@ -120,10 +120,22 @@ class SmbAccess(username: String, password: String, domain: String = "", authMod
 
     fun factory(): DataSource.Factory = DataSource.Factory { SmbDataSource(context) }
 
+    /**
+     * Media3's Matroska extractor often requests individual EBML bytes.
+     * Going to Windows for every request stalls even a fast LAN. Read up to
+     * 64 KiB over SMB, then satisfy tiny extractor requests from memory.
+     *
+     * DataSpec.position is honored for seek/reopen; only delivered bytes
+     * count against the advertised DataSpec length.
+     */
     private class SmbDataSource(private val context: CIFSContext) : BaseDataSource(true) {
         private var file: SmbRandomAccessFile? = null
         private var openedUri: Uri? = null
         private var left: Long = 0L
+        private val cache = ByteArray(64 * 1024)
+        private var cachePosition = 0
+        private var cacheLimit = 0
+        private var started = false
 
         override fun open(dataSpec: DataSpec): Long {
             transferInitializing(dataSpec)
@@ -131,17 +143,24 @@ class SmbAccess(username: String, password: String, domain: String = "", authMod
             try {
                 val u = dataSpec.uri
                 if (u.scheme != "smb") throw IOException("Not an SMB URL")
+                // A DataSource can be reused for a new position. Avoid stale
+                // bytes from the previous stream when the extractor seeks.
+                file?.close()
+                file = null
+                cachePosition = 0
+                cacheLimit = 0
                 val opened = SmbFile(u.toString(), context).openRandomAccess("r")
                 try {
-                    val length = opened.length()
-                    if (dataSpec.position > length) throw IOException("Seek beyond file size")
+                    val size = opened.length()
+                    if (dataSpec.position > size) throw IOException("Seek beyond file size")
                     opened.seek(dataSpec.position)
                     file = opened
                     openedUri = u
-                    left = if (dataSpec.length == C.LENGTH_UNSET.toLong()) length - dataSpec.position
-                           else minOf(dataSpec.length, length - dataSpec.position)
+                    left = if (dataSpec.length == C.LENGTH_UNSET.toLong()) size - dataSpec.position
+                           else minOf(dataSpec.length, size - dataSpec.position)
                     openCount.incrementAndGet()
-                    operation = "Opened; waiting for bytes"
+                    operation = "Opened; buffered SMB reads enabled"
+                    started = true
                     transferStarted(dataSpec)
                     return left
                 } catch (ex: Exception) {
@@ -156,22 +175,30 @@ class SmbAccess(username: String, password: String, domain: String = "", authMod
 
         override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
             if (length == 0) return 0
-            if (left <= 0) return C.RESULT_END_OF_INPUT
-            // Restrict reads to 64 KiB for reliable small-buffer SMB2
-            // requests and progressive MKV extraction.
-            val wanted = minOf(length.toLong(), left, 65536L).toInt()
-            operation = "Reading ${wanted} bytes"
-            val count = try { file?.read(buffer, offset, wanted) }
-                        catch (ex: Exception) {
-                            operation = "Read error: ${ex.javaClass.simpleName}"
-                            throw IOException("SMB read failed", ex)
-                        }
-                        ?: return C.RESULT_END_OF_INPUT
-            if (count < 0) return C.RESULT_END_OF_INPUT
+            if (left <= 0L) return C.RESULT_END_OF_INPUT
+            if (cachePosition >= cacheLimit) {
+                val handle = file ?: return C.RESULT_END_OF_INPUT
+                val fetch = minOf(cache.size.toLong(), left).toInt()
+                operation = "Fetching ${fetch} bytes from SMB"
+                val fetched = try { handle.read(cache, 0, fetch) }
+                              catch (ex: Exception) {
+                                  operation = "Read error: ${ex.javaClass.simpleName}"
+                                  throw IOException("SMB read failed", ex)
+                              }
+                if (fetched <= 0) {
+                    if (fetched == 0) throw IOException("SMB returned no data before file ended")
+                    return C.RESULT_END_OF_INPUT
+                }
+                cachePosition = 0
+                cacheLimit = fetched
+                readCount.incrementAndGet()
+                totalBytes.addAndGet(fetched.toLong())
+                operation = "Fetched ${totalBytes.get()} SMB bytes"
+            }
+            val count = minOf(length.toLong(), left, (cacheLimit - cachePosition).toLong()).toInt()
+            System.arraycopy(cache, cachePosition, buffer, offset, count)
+            cachePosition += count
             left -= count
-            readCount.incrementAndGet()
-            totalBytes.addAndGet(count.toLong())
-            operation = "Read ${totalBytes.get()} bytes"
             bytesTransferred(count)
             return count
         }
@@ -179,12 +206,16 @@ class SmbAccess(username: String, password: String, domain: String = "", authMod
         override fun getUri(): Uri? = openedUri
 
         override fun close() {
-            val hadFile = file != null
             try { file?.close() } finally {
                 file = null
                 openedUri = null
-                left = 0
-                if (hadFile) transferEnded()
+                cachePosition = 0
+                cacheLimit = 0
+                left = 0L
+                if (started) {
+                    started = false
+                    transferEnded()
+                }
             }
         }
     }
