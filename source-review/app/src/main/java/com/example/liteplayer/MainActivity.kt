@@ -1319,7 +1319,13 @@ class MainActivity : ComponentActivity() {
                                 browseSmb(up)
                             } else {
                                 val (name, isDir) = filtered[which - (if (showUp) 1 else 0)]
-                                val url = folder + Uri.encode(name.trimEnd('/')) + if (isDir) "/" else ""
+                                // Nova's SMB browser preserves ordinary spaces in
+                                // child paths; only URI path delimiters need escaping.
+                                // Percent-encoding every character here can produce
+                                // nonexistent SMB names with jcifs-ng.
+                                val childName = name.trimEnd('/')
+                                    .replace("#", "%23").replace("?", "%3F")
+                                val url = folder + childName + if (isDir) "/" else ""
                                 if (isDir) browseSmb(url)
                                 else {
                                     releasePlayer()
