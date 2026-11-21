@@ -29,7 +29,8 @@ jobs:
           assert 'applicationId = "com.example.liteplayer"' in t
           assert 'isMinifyEnabled = true' in t and 'isShrinkResources = true' in t
           t = t.replace('applicationId = "com.example.liteplayer"', 'applicationId = "com.example.liteplayer.rc"')
-          t = t.replace('isMinifyEnabled = true', 'isMinifyEnabled = true\n            signingConfig = signingConfigs.getByName("debug")', 1)
+          t = t.replace('isMinifyEnabled = true', 'isMinifyEnabled = false\n            signingConfig = signingConfigs.getByName("debug")', 1)
+          t = t.replace('isShrinkResources = true', 'isShrinkResources = false', 1)
           t = t.replace('proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))', 'proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")')
           p.write_text(t)
           # SLF4J 1.7 allows operation without the optional logging binding.
@@ -45,7 +46,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
-      - name: Build R8-optimized release candidate
+      - name: Build compatibility-first release candidate (no R8)
         run: gradle assembleRelease
         working-directory: proj
       - name: Verify APK signature, ZIP alignment, and file sizes
@@ -58,5 +59,5 @@ jobs:
           echo "Release-candidate signed with temporary Android debug key; NOT a distributable production signing identity."
       - uses: actions/upload-artifact@v4
         with:
-          name: LitePlayer-optimized-RC-not-public
+          name: LitePlayer-SMB-compatibility-RC-not-public
           path: proj/app/build/outputs/apk/release/app-release.apk
