@@ -678,8 +678,13 @@ class MainActivity : ComponentActivity() {
             .build()
 
         val loadControl = DefaultLoadControl.Builder()
-            // Start local/LAN streams sooner without reducing the sustained buffer.
-            .setBufferDurationsMs(30_000, 60_000, 1_500, 5_000)
+            // Increase buffering only for SMB videos; leave Plezy and other playback unchanged.
+            .setBufferDurationsMs(
+                if (u.scheme == "smb") 60_000 else 30_000,
+                if (u.scheme == "smb") 120_000 else 60_000,
+                if (u.scheme == "smb") 2_500 else 1_500,
+                if (u.scheme == "smb") 10_000 else 5_000
+            )
             .build()
         val builder = ExoPlayer.Builder(this, factory)
             .setLoadControl(loadControl)
