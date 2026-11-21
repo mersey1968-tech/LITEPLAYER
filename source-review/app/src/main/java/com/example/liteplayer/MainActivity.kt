@@ -22,6 +22,7 @@ import android.widget.ProgressBar
 import android.widget.LinearLayout
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import java.security.MessageDigest
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
@@ -69,6 +70,38 @@ class MainActivity : ComponentActivity() {
     private lateinit var seekTimeLabel: TextView
     private lateinit var seekProgressBar: ProgressBar
     private val hideSeekIndicator = Runnable { seekIndicator.visibility = View.GONE }
+    private var lastRemoteSeekAt = 0L
+    private var lastRemoteSeekKey = KeyEvent.KEYCODE_UNKNOWN
+    // Android TV remotes send repeated key-down events while a button is held.
+    // Throttle seek requests to avoid flooding the decoder while scrubbing.
+    private fun seekFromRemote(keyCode: Int, repeatCount: Int, seconds: Int) {
+        val now = SystemClock.uptimeMillis()
+        if (repeatCount == 0 || keyCode != lastRemoteSeekKey || now - lastRemoteSeekAt >= 180L) {
+            seekRelative(seconds)
+            lastRemoteSeekAt = now
+            lastRemoteSeekKey = keyCode
+        }
+    }
+
+    private fun installHoldToSeek(button: Button, seconds: () -> Int) {
+        button.setOnKeyListener { _, code, event ->
+            if (code != KeyEvent.KEYCODE_DPAD_CENTER &&
+                code != KeyEvent.KEYCODE_ENTER &&
+                code != KeyEvent.KEYCODE_NUMPAD_ENTER) return@setOnKeyListener false
+            when (event.action) {
+                KeyEvent.ACTION_DOWN -> {
+                    seekFromRemote(code, event.repeatCount, seconds())
+                    scheduleHide()
+                    true
+                }
+                KeyEvent.ACTION_UP -> {
+                    lastRemoteSeekKey = KeyEvent.KEYCODE_UNKNOWN
+                    true // Avoid an additional Button click on release.
+                }
+                else -> false
+            }
+        }
+    }
     private lateinit var revealControls: View
     private lateinit var controlPanel: LinearLayout
     private lateinit var playPauseButton: Button
@@ -260,6 +293,8 @@ class MainActivity : ComponentActivity() {
         }
         rewindButton.setOnClickListener { seekRelative(-seekBackSeconds); scheduleHide() }
         forwardButton.setOnClickListener { seekRelative(seekForwardSeconds); scheduleHide() }
+        installHoldToSeek(rewindButton) { -seekBackSeconds }
+        installHoldToSeek(forwardButton) { seekForwardSeconds }
         seekSettingsButton.setOnClickListener { showSeekSettingsDialog() }
         refreshSeekLabels()
         concealControls("startup")
@@ -819,14 +854,14 @@ class MainActivity : ComponentActivity() {
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         // With the overlay hidden, LEFT/RIGHT seek without showing controls.
         // When controls are open, retain standard D-pad navigation and focus.
-        if (controlPanel.visibility != View.VISIBLE && event.repeatCount == 0) {
+        if (controlPanel.visibility != View.VISIBLE) {
             when (keyCode) {
                 KeyEvent.KEYCODE_DPAD_LEFT -> {
-                    seekRelative(-seekBackSeconds)
+                    seekFromRemote(keyCode, event.repeatCount, -seekBackSeconds)
                     return true
                 }
                 KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                    seekRelative(seekForwardSeconds)
+                    seekFromRemote(keyCode, event.repeatCount, seekForwardSeconds)
                     return true
                 }
             }
@@ -844,6 +879,14 @@ class MainActivity : ComponentActivity() {
         }
         if (controlPanel.visibility == View.VISIBLE) scheduleHide()
         return super.onKeyDown(keyCode, event)
+    }
+
+    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+            lastRemoteSeekKey = KeyEvent.KEYCODE_UNKNOWN
+            if (controlPanel.visibility != View.VISIBLE) return true
+        }
+        return super.onKeyUp(keyCode, event)
     }
 
     // ---- Subtitle size -----------------------------------------------------------------------
