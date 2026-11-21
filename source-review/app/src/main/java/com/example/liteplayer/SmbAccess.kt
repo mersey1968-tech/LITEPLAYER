@@ -13,12 +13,23 @@ import jcifs.smb.NtlmPasswordAuthenticator
 import jcifs.smb.SmbFile
 import jcifs.smb.SmbRandomAccessFile
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * SMB2/3 browsing and random-access streaming. Credentials remain in RAM and
  * are never placed in a URI, intent, log, or preference file.
  */
 class SmbAccess(username: String, password: String, domain: String = "", authMode: String = "auto") {
+    companion object {
+        // Diagnostic counters do not contain filenames or credentials.
+        private val totalBytes = AtomicLong(0L)
+        private val openCount = AtomicLong(0L)
+        private val readCount = AtomicLong(0L)
+        @Volatile private var operation = "Not started"
+        fun networkStatus(): String =
+            "SMB: ${operation}; opens=${openCount.get()}; reads=${readCount.get()}; " +
+                "bytes=${totalBytes.get()}"
+    }
     // jcifs-ng uses distinct authentication types. An ordinary authenticator with
     // empty strings is not the same as an anonymous/null SMB session.
     private val credentials: NtlmPasswordAuthenticator = when {
@@ -116,6 +127,7 @@ class SmbAccess(username: String, password: String, domain: String = "", authMod
 
         override fun open(dataSpec: DataSpec): Long {
             transferInitializing(dataSpec)
+            operation = "Opening at byte ${dataSpec.position}"
             try {
                 val u = dataSpec.uri
                 if (u.scheme != "smb") throw IOException("Not an SMB URL")
@@ -128,6 +140,8 @@ class SmbAccess(username: String, password: String, domain: String = "", authMod
                     openedUri = u
                     left = if (dataSpec.length == C.LENGTH_UNSET.toLong()) length - dataSpec.position
                            else minOf(dataSpec.length, length - dataSpec.position)
+                    openCount.incrementAndGet()
+                    operation = "Opened; waiting for bytes"
                     transferStarted(dataSpec)
                     return left
                 } catch (ex: Exception) {
@@ -135,6 +149,7 @@ class SmbAccess(username: String, password: String, domain: String = "", authMod
                     throw ex
                 }
             } catch (ex: Exception) {
+                operation = "Open error: ${ex.javaClass.simpleName}"
                 throw IOException("Unable to open SMB stream", ex)
             }
         }
@@ -142,11 +157,21 @@ class SmbAccess(username: String, password: String, domain: String = "", authMod
         override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
             if (length == 0) return 0
             if (left <= 0) return C.RESULT_END_OF_INPUT
-            val count = try { file?.read(buffer, offset, minOf(length.toLong(), left).toInt()) }
-                        catch (ex: Exception) { throw IOException("SMB read failed", ex) }
+            // Restrict reads to 64 KiB for reliable small-buffer SMB2
+            // requests and progressive MKV extraction.
+            val wanted = minOf(length.toLong(), left, 65536L).toInt()
+            operation = "Reading ${wanted} bytes"
+            val count = try { file?.read(buffer, offset, wanted) }
+                        catch (ex: Exception) {
+                            operation = "Read error: ${ex.javaClass.simpleName}"
+                            throw IOException("SMB read failed", ex)
+                        }
                         ?: return C.RESULT_END_OF_INPUT
             if (count < 0) return C.RESULT_END_OF_INPUT
             left -= count
+            readCount.incrementAndGet()
+            totalBytes.addAndGet(count.toLong())
+            operation = "Read ${totalBytes.get()} bytes"
             bytesTransferred(count)
             return count
         }
