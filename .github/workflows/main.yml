@@ -9,32 +9,6 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
-      - name: Extract source review (isolated branch only)
-        if: github.ref == 'refs/heads/liteplayer-safe-optimization'
-        run: |
-          python3 - <<'PY'
-          import pathlib,zipfile
-          target=pathlib.Path('source-review')
-          allowed={'.kt','.java','.kts','.gradle','.xml','.properties','.md','.txt','.json','.pro'}
-          with zipfile.ZipFile('LitePlayer.zip') as z:
-              for entry in z.infolist():
-                  p=pathlib.PurePosixPath(entry.filename)
-                  if entry.is_dir() or p.is_absolute() or '..' in p.parts or any(x.startswith('.') for x in p.parts) or p.suffix.lower() not in allowed or entry.file_size>300000 or any(x in p.parts for x in ('build','.gradle','.idea')): continue
-                  data=z.read(entry)
-                  try: data.decode('utf-8')
-                  except UnicodeDecodeError: continue
-                  out=target.joinpath(*p.parts)
-                  out.parent.mkdir(parents=True,exist_ok=True)
-                  out.write_bytes(data)
-                  print(out)
-          PY
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add source-review
-          if ! git diff --cached --quiet; then
-            git commit -m 'Extract source for safe LitePlayer optimization review'
-            git push
-          fi
       - run: unzip LitePlayer.zip -d proj
       - name: Overlay reviewed optimization into build copy
         run: cp source-review/app/src/main/java/com/example/liteplayer/MainActivity.kt proj/app/src/main/java/com/example/liteplayer/MainActivity.kt
