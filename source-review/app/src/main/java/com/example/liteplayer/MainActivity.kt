@@ -1017,7 +1017,7 @@ class MainActivity : ComponentActivity() {
             setPadding(36, 12, 36, 12)
         }
         val server = EditText(this).apply {
-            hint = "smb://192.168.1.10/Movies/"
+            hint = "smb://192.168.1.10/"
             setSingleLine(true)
             setText(prefs.getString("share", ""))
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
@@ -1044,8 +1044,8 @@ class MainActivity : ComponentActivity() {
                     .let { if (it.endsWith("/")) it else "${it}/" }
                 val parsed = Uri.parse(folder)
                 if (parsed.scheme != "smb" || parsed.host.isNullOrBlank() ||
-                    parsed.pathSegments.isEmpty() || parsed.userInfo != null) {
-                    Toast.makeText(this, "Use smb://server/share/", Toast.LENGTH_LONG).show()
+                    parsed.userInfo != null) {
+                    Toast.makeText(this, "Use smb://server/ (share optional)", Toast.LENGTH_LONG).show()
                 } else {
                     val user = username.text.toString().trim()
                     // Save only the server/share path and username, never the password.
