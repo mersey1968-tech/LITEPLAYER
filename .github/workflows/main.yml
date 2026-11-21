@@ -14,6 +14,8 @@ jobs:
         run: cp source-review/app/src/main/java/com/example/liteplayer/MainActivity.kt proj/app/src/main/java/com/example/liteplayer/MainActivity.kt
       - name: Overlay DTS-HD sync correction into build copy
         run: cp source-review/app/src/main/java/com/example/liteplayer/audio/IecAudioOutput.kt proj/app/src/main/java/com/example/liteplayer/audio/IecAudioOutput.kt
+      - name: Overlay seek indicator layout
+        run: cp source-review/app/src/main/res/layout/activity_main.xml proj/app/src/main/res/layout/activity_main.xml
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
