@@ -1140,10 +1140,11 @@ class MainActivity : ComponentActivity() {
             .setCancelable(false).create()
         progress.show()
         Thread {
-            // Do not initiate a Guest login when the server's Guest account
-            // is disabled. Try one anonymous discovery request only.
-            // Close its transport pool if the server rejects enumeration.
-            val attempts = listOf("anonymous")
+            // Nova Video Player's JcifsUtils uses
+            // BaseContext.withGuestCrendentials() when no credentials were entered.
+            // This is SMB session authentication, not a request to enable the
+            // built-in Windows Guest account. Close failed contexts immediately.
+            val attempts = listOf("nova-guest")
             var success: SmbAccess? = null
             var listing: List<Pair<String, Boolean>>? = null
             val problems = mutableListOf<String>()
