@@ -290,10 +290,13 @@ class MainActivity : ComponentActivity() {
                     "${cause.javaClass.simpleName}: ${cause.message ?: "(no message)"}"
                 }
             val failedUri = uri?.toString().orEmpty()
+            // Include cause and SMB status to separate DTS-HD device errors from
+            // network read errors without exposing credentials or server names.
+            val smbStatus = SmbAccess.networkStatus()
             AlertDialog.Builder(this@MainActivity)
                 .setTitle("Cannot open network video")
                 .setMessage("File: ${failedUri.substringAfterLast('/')}\n\n" +
-                    details.take(800))
+                    details.take(900) + "\n" + smbStatus)
                 .setPositiveButton("Back to folder") { _, _ ->
                     exitToCaller()
                 }
@@ -603,7 +606,6 @@ class MainActivity : ComponentActivity() {
                     // context-backed builder ignores setAudioCapabilities().
                     // Keep the existing audio path unchanged for Plezy/HTTP.
                     val sinkBuilder = if (u.scheme == "smb") {
-                        @Suppress("DEPRECATION")
                         DefaultAudioSink.Builder().setAudioCapabilities(forced)
                     } else {
                         DefaultAudioSink.Builder(this@MainActivity)
