@@ -33,7 +33,7 @@
         android:layout_marginStart="36dp"
         android:layout_marginEnd="36dp"
         android:layout_marginBottom="116dp"
-        android:background="#C9000000"
+        android:background="#4D606060"
         android:clickable="false"
         android:focusable="false"
         android:orientation="vertical"
