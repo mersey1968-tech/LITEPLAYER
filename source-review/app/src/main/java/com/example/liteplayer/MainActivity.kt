@@ -328,8 +328,42 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Diagnostic build: save the exception type and top frames when Android
+        // terminates the app on an uncaught Java/Kotlin exception. This does
+        // not intercept native crashes or process kills, and never suppresses
+        // Android's normal crash handling.
+        val priorHandler = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, failure ->
+            try {
+                val summary = generateSequence(failure as Throwable?) { it.cause }
+                    .take(4).joinToString("\\nCaused by: ") {
+                        "${it.javaClass.name}: ${it.message.orEmpty()}"
+                    }
+                val frames = failure.stackTrace.take(7).joinToString("\\n") {
+                    "${it.className}.${it.methodName}:${it.lineNumber}"
+                }
+                getSharedPreferences("diagnostics", MODE_PRIVATE).edit()
+                    .putString("lastCrash", (summary + "\\n" + frames).take(1800))
+                    .commit()
+            } catch (_: Throwable) { }
+            if (priorHandler != null) priorHandler.uncaughtException(thread, failure)
+            else android.os.Process.killProcess(android.os.Process.myPid())
+        }
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        val diagnostics = getSharedPreferences("diagnostics", MODE_PRIVATE)
+        val lastCrash = diagnostics.getString("lastCrash", null)
+        if (!lastCrash.isNullOrBlank()) {
+            diagnostics.edit().remove("lastCrash").apply()
+            window.decorView.post {
+                if (!isFinishing && !isDestroyed) {
+                    AlertDialog.Builder(this)
+                        .setTitle("Previous LitePlayer crash")
+                        .setMessage(lastCrash)
+                        .setPositiveButton("OK", null).show()
+                }
+            }
+        }
         playerView = findViewById(R.id.playerView)
         // Do not automatically show controls when playback starts. A tap reveals them;
         // PlayerView hides them again after this timeout.
