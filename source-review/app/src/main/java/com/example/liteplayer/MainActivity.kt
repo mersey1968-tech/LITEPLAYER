@@ -596,7 +596,19 @@ class MainActivity : ComponentActivity() {
                         ),
                         8
                     )
-                    return DefaultAudioSink.Builder(this@MainActivity)
+                    // For SMB remuxes, route DTS-HD and other supported encoded
+                    // formats to HDMI rather than through the Android MediaCodec
+                    // audio decoder. The previous 'forced' capabilities value
+                    // above was constructed but never actually used. Media3's
+                    // context-backed builder ignores setAudioCapabilities().
+                    // Keep the existing audio path unchanged for Plezy/HTTP.
+                    val sinkBuilder = if (u.scheme == "smb") {
+                        @Suppress("DEPRECATION")
+                        DefaultAudioSink.Builder().setAudioCapabilities(forced)
+                    } else {
+                        DefaultAudioSink.Builder(this@MainActivity)
+                    }
+                    return sinkBuilder
                         .setAudioOutputProvider(
                             IecAudioOutputProvider(
                                 AudioTrackAudioOutputProvider.Builder(this@MainActivity).build()
