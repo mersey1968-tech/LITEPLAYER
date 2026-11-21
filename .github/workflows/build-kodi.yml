@@ -942,6 +942,18 @@ jobs:
             echo "⚠️ PREFIX share dir not found at $SHARE_DIR"
           fi
 
+          # Fix the manifest that the APK packaging Gradle task actually reads.
+          # Reapply after the native build, which can regenerate the manifest.
+          PKG="${{ github.event.inputs.package_id || 'com.kodi.liteplayer' }}"
+          MANIFEST="$PACKAGING_DIR/xbmc/AndroidManifest.xml"
+          test -f "$MANIFEST"
+          for SUFFIX in media file ytdl; do
+            sed -i "s|org.xbmc.kodi.$SUFFIX|$PKG.$SUFFIX|g" "$MANIFEST"
+            grep -Fq "$PKG.$SUFFIX" "$MANIFEST" || { echo "::error::Missing $PKG.$SUFFIX"; exit 1; }
+          done
+          echo "Patched final Gradle manifest provider authorities:"
+          grep 'android:authorities' "$MANIFEST"
+
           # --- PHASE 2: Run make apk (bundle + shared + libs + python + java + gradle) ---
           cd "$KODI_SRC"
           make -C "$BUILD_DIR" apk 2>&1 | tee ~/apk-package.log
@@ -1123,9 +1135,11 @@ jobs:
           if grep -Eq 'org\\.xbmc\\.kodi\\.(media|file|ytdl)' /tmp/kodi-manifest-tree.txt; then
             echo "::error::Original Kodi provider authority remains in APK"; exit 1
           fi
-          if ! grep -Fq "com.kodi.liteplayer" /tmp/kodi-manifest-tree.txt; then
-            echo "::error::Custom provider namespace absent from APK manifest"; exit 1
-          fi
+          for SUFFIX in media file ytdl; do
+            if ! grep -Fq "$EXPECTED_PKG.$SUFFIX" /tmp/kodi-manifest-tree.txt; then
+              echo "::error::Final APK missing provider authority $EXPECTED_PKG.$SUFFIX"; exit 1
+            fi
+          done
           "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose "$OUT"
           SIZE=$(du -sh "$OUT" | cut -f1)
           echo "✅ Signed APK: $OUT_NAME ($SIZE)"
