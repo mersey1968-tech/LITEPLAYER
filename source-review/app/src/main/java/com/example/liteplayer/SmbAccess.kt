@@ -41,7 +41,7 @@ class SmbAccess(username: String, password: String, domain: String = "") {
             try {
                 val u = dataSpec.uri
                 if (u.scheme != "smb") throw IOException("Not an SMB URL")
-                val opened = SmbRandomAccessFile(SmbFile(u.toString(), context), "r")
+                val opened = SmbFile(u.toString(), context).openRandomAccess("r")
                 val length = opened.length()
                 if (dataSpec.position > length) {
                     opened.close()
