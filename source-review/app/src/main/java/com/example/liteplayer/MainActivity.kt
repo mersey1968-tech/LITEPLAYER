@@ -293,12 +293,12 @@ class MainActivity : ComponentActivity() {
                 clearProgress()
                 // When another app (e.g. Plezy) launched us, hand control back when the video finishes.
                 if (launchedExternally) {
-            finish()
-        } else {
-            val parent = if (uri?.scheme == "smb") lastSmbFolder else null
-            showHome()
-            if (parent != null && smbAccess != null) browseSmb(parent)
-        }
+                    finish()
+                } else {
+                    val parent = if (uri?.scheme == "smb") lastSmbFolder else null
+                    showHome()
+                    if (parent != null && smbAccess != null) browseSmb(parent)
+                }
             }
         }
     }
