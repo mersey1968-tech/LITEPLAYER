@@ -630,6 +630,16 @@ class MainActivity : ComponentActivity() {
                         ),
                         8
                     )
+                    // Diagnose SMB-only AC-3/DTS-HD AudioTrack (-6) failure.
+                    // Use Android's default HDMI route instead of the custom
+                    // IEC carrier wrapper. Keep the established Plezy sink
+                    // completely unchanged. This is a compatibility test:
+                    // supported formats may passthrough, others may decode.
+                    if (u.scheme == "smb") {
+                        return DefaultAudioSink.Builder(this@MainActivity)
+                            .setEnableFloatOutput(false)
+                            .build()
+                    }
                     return DefaultAudioSink.Builder(this@MainActivity)
                         .setAudioOutputProvider(
                             IecAudioOutputProvider(
