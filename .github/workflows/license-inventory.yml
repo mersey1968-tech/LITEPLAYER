@@ -1,0 +1,34 @@
+name: License dependency inventory
+on:
+  workflow_dispatch:
+jobs:
+  dependency-report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract tested project source
+        run: |
+          mkdir -p proj
+          unzip -q LitePlayer.zip -d proj
+          cp source-review/app/src/main/java/com/example/liteplayer/MainActivity.kt proj/app/src/main/java/com/example/liteplayer/MainActivity.kt
+          cp source-review/app/src/main/java/com/example/liteplayer/audio/IecAudioOutput.kt proj/app/src/main/java/com/example/liteplayer/audio/IecAudioOutput.kt
+          cp source-review/app/src/main/java/com/example/liteplayer/SmbAccess.kt proj/app/src/main/java/com/example/liteplayer/SmbAccess.kt
+          sed -i '/^dependencies {/a\    implementation("eu.agno3.jcifs:jcifs-ng:2.1.10")' proj/app/build.gradle.kts
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+      - name: Resolve runtime dependencies and make report
+        working-directory: proj
+        run: |
+          mkdir -p ../license-report
+          gradle :app:dependencies --configuration debugRuntimeClasspath > ../license-report/debugRuntimeClasspath.txt
+          gradle :app:dependencies --configuration releaseRuntimeClasspath > ../license-report/releaseRuntimeClasspath.txt
+          cp app/build.gradle.kts ../license-report/build.gradle.kts.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LitePlayer-dependency-inventory
+          path: license-report/
