@@ -29,6 +29,8 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.Cue
+import androidx.media3.common.CueGroup
 import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
@@ -161,6 +163,45 @@ class MainActivity : ComponentActivity() {
             // Do not clear active cues here: the player will send the appropriate CueGroup.
             // SubtitleView may be refreshed when tracks change; restore the saved user size.
             restoreSubtitleStyleAfterRefresh()
+        }
+
+        override fun onCues(cueGroup: CueGroup) {
+            // A stream may emit separate text cues at exactly the same screen
+            // position; SubtitleView then draws two sentences over one another.
+            // Keep the last cue at a colliding placement, but preserve true
+            // multiline text inside one cue, cues positioned separately, and
+            // image-based (PGS/VobSub) subtitles.
+            val cues = cueGroup.cues
+            if (cues.size < 2) return
+            val toShow = ArrayList<Cue>(cues.size)
+            var hasCollision = false
+            for (cue in cues) {
+                if (cue.text != null) {
+                    val older = toShow.indexOfFirst { existing ->
+                        existing.text != null &&
+                            existing.line == cue.line &&
+                            existing.lineType == cue.lineType &&
+                            existing.lineAnchor == cue.lineAnchor &&
+                            existing.position == cue.position &&
+                            existing.positionAnchor == cue.positionAnchor
+                    }
+                    if (older >= 0) {
+                        toShow.removeAt(older)
+                        hasCollision = true
+                    }
+                }
+                toShow.add(cue)
+            }
+            if (hasCollision) {
+                val active = player
+                // PlayerView receives the same event; apply the filtered set
+                // after its regular subtitle update has completed.
+                playerView.post {
+                    if (active != null && active === player) {
+                        playerView.subtitleView?.setCues(toShow)
+                    }
+                }
+            }
         }
 
         override fun onRenderedFirstFrame() {
