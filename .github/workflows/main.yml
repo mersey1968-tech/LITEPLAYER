@@ -33,7 +33,7 @@ jobs:
           t = t.replace('proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))', 'proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")')
           p.write_text(t)
           # SLF4J 1.7 allows operation without the optional logging binding.
-          Path("proj/app/proguard-rules.pro").write_text("-dontwarn org.slf4j.impl.StaticLoggerBinder\\n")
+          Path("proj/app/proguard-rules.pro").write_text("-dontwarn org.slf4j.impl.StaticLoggerBinder\n")
           m = Path("proj/app/src/main/AndroidManifest.xml")
           mt = m.read_text().replace('android:label="LitePlayer"', 'android:label="LitePlayer RC"')
           m.write_text(mt)
