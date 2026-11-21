@@ -8,6 +8,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: unzip LitePlayer.zip -d proj
+      - name: Inspect network buffering source
+        run: |
+          echo '=== files ==='
+          find proj/app/src/main -type f
+          echo '=== buffering references ==='
+          grep -RniE 'buffer|cache|readAhead|read_ahead|smb|readChunk|readSize' proj/app/src/main/java | head -120 || true
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
