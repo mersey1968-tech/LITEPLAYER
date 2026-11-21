@@ -1338,7 +1338,7 @@ class MainActivity : ComponentActivity() {
                         filtered.map { (name, dir) ->
                             (if (dir) "📁  " else "▶  ") + name.trimEnd('/')
                         }
-                    AlertDialog.Builder(this).setTitle(folder)
+                    val folderDialog = AlertDialog.Builder(this).setTitle(folder)
                         .setItems(labels.toTypedArray()) { _, which ->
                             if (showUp && which == 0) {
                                 val up = folder.trimEnd('/').substringBeforeLast('/') + "/"
@@ -1354,21 +1354,58 @@ class MainActivity : ComponentActivity() {
                                 val url = folder + childName + if (isDir) "/" else ""
                                 if (isDir) browseSmb(url)
                                 else {
-                                    lastSmbFolder = folder
-                                    releasePlayer()
-                                    openStandalone(Uri.parse(url))
+                                    val verify = AlertDialog.Builder(this)
+                                        .setMessage("Opening network video…")
+                                        .setCancelable(false).create()
+                                    verify.show()
+                                    Thread {
+                                        val check = runCatching { access.probeVideo(url) }
+                                        runOnUiThread {
+                                            if (isFinishing || isDestroyed) {
+                                                verify.dismiss()
+                                                return@runOnUiThread
+                                            }
+                                            verify.dismiss()
+                                            check.onSuccess {
+                                                lastSmbFolder = folder
+                                                releasePlayer()
+                                                openStandalone(Uri.parse(url))
+                                            }.onFailure { error ->
+                                                val details = generateSequence(error as Throwable?) { it.cause }
+                                                    .take(5).joinToString("\nCaused by: ") {
+                                                        cause -> "${cause.javaClass.simpleName}: ${cause.message.orEmpty()}"
+                                                    }
+                                                AlertDialog.Builder(this)
+                                                    .setTitle("Cannot open network video")
+                                                    .setMessage("File: ${name.trimEnd('/')}\n\n" + details.take(700))
+                                                    .setPositiveButton("Back to folder") { _, _ ->
+                                                        browseSmb(folder)
+                                                    }
+                                                    .setNegativeButton("Home", null).show()
+                                            }
+                                        }
+                                    }.start()
                                 }
                             }
                         }
-                        .setNegativeButton("Home", null)
-                        .setOnCancelListener {
+                        .setPositiveButton("Back") { _, _ ->
                             if (showUp) {
                                 val parent = folder.trimEnd('/').substringBeforeLast('/') + "/"
                                 browseSmb(parent)
                             } else {
                                 scanForSmb()
                             }
-                        }.show()
+                        }
+                        .setNegativeButton("Home", null).create()
+                    folderDialog.setOnCancelListener {
+                        if (showUp) {
+                            val parent = folder.trimEnd('/').substringBeforeLast('/') + "/"
+                            browseSmb(parent)
+                        } else {
+                            scanForSmb()
+                        }
+                    }
+                    folderDialog.show()
                 }
             }
         }.start()
