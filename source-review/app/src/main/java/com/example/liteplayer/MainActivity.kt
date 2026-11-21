@@ -19,6 +19,11 @@ import android.view.KeyEvent
 import android.widget.Button
 import android.widget.TextView
 import android.widget.ProgressBar
+import android.widget.EditText
+import android.widget.Toast
+import android.provider.OpenableColumns
+import org.json.JSONArray
+import org.json.JSONObject
 import android.widget.LinearLayout
 import android.os.Handler
 import android.os.Looper
@@ -67,6 +72,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var infoText: TextView
     private lateinit var subtitleButton: Button
     private lateinit var seekIndicator: View
+    private lateinit var homePanel: View
     private lateinit var seekTimeLabel: TextView
     private lateinit var seekProgressBar: ProgressBar
     private val hideSeekIndicator = Runnable { seekIndicator.visibility = View.GONE }
@@ -159,8 +165,9 @@ class MainActivity : ComponentActivity() {
                 contentResolver.takePersistableUriPermission(picked, Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
             releasePlayer()
-            uri = picked; activeIdentity = identityFor(picked, null); position = restoredPosition(picked); playWhenReady = true; ended = false
-            startPlayer()
+            rememberRecent(picked)
+            openStandalone(picked)
+
         }
     }
 
@@ -252,7 +259,7 @@ class MainActivity : ComponentActivity() {
                 ended = true
                 clearProgress()
                 // When another app (e.g. Plezy) launched us, hand control back when the video finishes.
-                if (launchedExternally) finish()
+                if (launchedExternally) finish() else showHome()
             }
         }
     }
@@ -279,6 +286,20 @@ class MainActivity : ComponentActivity() {
         seekIndicator = findViewById(R.id.seekIndicator)
         seekTimeLabel = findViewById(R.id.seekTimeLabel)
         seekProgressBar = findViewById(R.id.seekProgressBar)
+        homePanel = findViewById(R.id.homePanel)
+        findViewById<Button>(R.id.browseFilesButton).setOnClickListener {
+            picker.launch(arrayOf("video/*", "audio/*"))
+        }
+        findViewById<Button>(R.id.networkFilesButton).setOnClickListener {
+            AlertDialog.Builder(this)
+                .setTitle("Network shares")
+                .setMessage("Choose an SMB or NAS location from a file provider installed on your Shield. Native SMB browsing is not included in this preview.")
+                .setPositiveButton("Browse") { _, _ -> picker.launch(arrayOf("video/*", "audio/*")) }
+                .setNegativeButton("Cancel", null)
+                .show()
+        }
+        findViewById<Button>(R.id.openUrlButton).setOnClickListener { promptForUrl() }
+        findViewById<Button>(R.id.recentVideosButton).setOnClickListener { showRecents() }
         // Always reachable from the manually revealed transport panel.
         findViewById<Button>(R.id.audioSettingsButton).setOnClickListener { showAudioTracksDialog() }
         subtitleButton.setOnClickListener { showSubtitleDialog() }
@@ -324,11 +345,9 @@ class MainActivity : ComponentActivity() {
             uri?.let { activeIdentity = identityFor(it, intent); position = startingPosition(it, intent) }
         }
         applyImmersive(resources.configuration)
-        // Skip the empty launch screen: go straight to the system file picker.
-        if (uri == null && savedInstanceState == null) {
-            openButton.visibility = View.GONE
-            playerView.post { if (uri == null && player == null) picker.launch(arrayOf("video/*", "audio/*")) }
-        }
+        // Standalone launches show the TV home. External players launch directly to video.
+        if (uri == null) showHome() else homePanel.visibility = View.GONE
+
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -338,6 +357,7 @@ class MainActivity : ComponentActivity() {
             // Save the outgoing episode before changing its identity or URL.
             saveProgress()
             launchedExternally = intent.action == Intent.ACTION_VIEW
+            homePanel.visibility = View.GONE
             setIntent(intent)
             uri = nextUri
             activeIdentity = identityFor(nextUri, intent)
@@ -488,6 +508,7 @@ class MainActivity : ComponentActivity() {
         manualAudioChoice = false
         lastAutoAudioKey = null
         openButton.visibility = View.GONE
+        homePanel.visibility = View.GONE
 
         val passthroughEnabled = getSharedPreferences("settings", MODE_PRIVATE).getBoolean("audioPassthrough", true)
         audioDecoderName = "not reported"
@@ -829,12 +850,11 @@ class MainActivity : ComponentActivity() {
         seekIndicator.postDelayed(hideSeekIndicator, 1800L)
     }
 
-    // Return to the activity that launched us; never open another media URL or
-    // relaunch the Plex server when the user presses Back.
+    // Return to Plezy on external playback; return to LitePlayer home for local playback.
     private fun exitToCaller() {
         saveProgress()
         player?.playWhenReady = false
-        finish()
+        if (launchedExternally) finish() else showHome()
     }
 
     // Catch remote Back before the player view or its controls can consume it.
@@ -887,6 +907,87 @@ class MainActivity : ComponentActivity() {
             if (controlPanel.visibility != View.VISIBLE) return true
         }
         return super.onKeyUp(keyCode, event)
+    }
+
+    private fun showHome() {
+        if (player != null) releasePlayer()
+        uri = null
+        activeIdentity = null
+        cachedProgressIdentity = null
+        cachedProgressKey = null
+        position = 0L
+        ended = false
+        seekIndicator.removeCallbacks(hideSeekIndicator)
+        seekIndicator.visibility = View.GONE
+        playerView.removeCallbacks(hideControls)
+        controlPanel.visibility = View.GONE
+        subtitleButton.visibility = View.GONE
+        revealControls.visibility = View.GONE
+        openButton.visibility = View.GONE
+        homePanel.visibility = View.VISIBLE
+        findViewById<Button>(R.id.browseFilesButton).requestFocus()
+    }
+
+    private fun openStandalone(next: Uri) {
+        launchedExternally = false
+        homePanel.visibility = View.GONE
+        uri = next
+        activeIdentity = identityFor(next, null)
+        position = restoredPosition(next)
+        playWhenReady = true
+        ended = false
+        startPlayer()
+    }
+
+    private fun promptForUrl() {
+        val input = EditText(this).apply {
+            hint = "https://example.com/movie.mkv"
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_URI
+            setSingleLine(true)
+        }
+        AlertDialog.Builder(this).setTitle("Open stream URL")
+            .setView(input)
+            .setPositiveButton("Play") { _, _ ->
+                val value = input.text.toString().trim()
+                val parsed = Uri.parse(value)
+                if ((parsed.scheme == "https" || parsed.scheme == "http") && !parsed.host.isNullOrBlank()) {
+                    openStandalone(parsed)
+                } else Toast.makeText(this, "Enter a valid http:// or https:// URL", Toast.LENGTH_LONG).show()
+            }
+            .setNegativeButton("Cancel", null).show()
+    }
+
+    // Record only files explicitly selected by the user. Never retain Plezy tokens.
+    private fun rememberRecent(chosen: Uri) {
+        val prefs = getSharedPreferences("recent_files", MODE_PRIVATE)
+        val current = runCatching { JSONArray(prefs.getString("items", "[]")) }.getOrDefault(JSONArray())
+        val next = JSONArray()
+        val name = runCatching {
+            contentResolver.query(chosen, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) cursor.getString(0) else null
+            }
+        }.getOrNull() ?: chosen.lastPathSegment ?: "Video"
+        next.put(JSONObject().put("uri", chosen.toString()).put("name", name))
+        for (i in 0 until current.length()) {
+            val entry = current.optJSONObject(i) ?: continue
+            if (entry.optString("uri") != chosen.toString() && next.length() < 8) next.put(entry)
+        }
+        prefs.edit().putString("items", next.toString()).apply()
+    }
+
+    private fun showRecents() {
+        val saved = getSharedPreferences("recent_files", MODE_PRIVATE).getString("items", "[]")
+        val items = runCatching { JSONArray(saved) }.getOrDefault(JSONArray())
+        if (items.length() == 0) {
+            Toast.makeText(this, "No recent files yet", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val labels = Array(items.length()) { items.optJSONObject(it)?.optString("name").orEmpty() }
+        AlertDialog.Builder(this).setTitle("Recent files")
+            .setItems(labels) { _, index ->
+                val path = items.optJSONObject(index)?.optString("uri").orEmpty()
+                if (path.isNotBlank()) openStandalone(Uri.parse(path))
+            }.setNegativeButton("Cancel", null).show()
     }
 
     // ---- Subtitle size -----------------------------------------------------------------------
