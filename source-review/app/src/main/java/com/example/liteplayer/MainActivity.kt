@@ -18,6 +18,7 @@ import android.view.View
 import android.view.KeyEvent
 import android.widget.Button
 import android.widget.TextView
+import android.widget.ProgressBar
 import android.widget.LinearLayout
 import android.os.Handler
 import android.os.Looper
@@ -64,6 +65,10 @@ class MainActivity : ComponentActivity() {
     private lateinit var openButton: Button
     private lateinit var infoText: TextView
     private lateinit var subtitleButton: Button
+    private lateinit var seekIndicator: View
+    private lateinit var seekTimeLabel: TextView
+    private lateinit var seekProgressBar: ProgressBar
+    private val hideSeekIndicator = Runnable { seekIndicator.visibility = View.GONE }
     private lateinit var revealControls: View
     private lateinit var controlPanel: LinearLayout
     private lateinit var playPauseButton: Button
@@ -238,6 +243,9 @@ class MainActivity : ComponentActivity() {
         openButton = findViewById(R.id.openButton)
         infoText = findViewById(R.id.infoText)
         subtitleButton = findViewById(R.id.subtitleButton)
+        seekIndicator = findViewById(R.id.seekIndicator)
+        seekTimeLabel = findViewById(R.id.seekTimeLabel)
+        seekProgressBar = findViewById(R.id.seekProgressBar)
         // Always reachable from the manually revealed transport panel.
         findViewById<Button>(R.id.audioSettingsButton).setOnClickListener { showAudioTracksDialog() }
         subtitleButton.setOnClickListener { showSubtitleDialog() }
@@ -250,11 +258,8 @@ class MainActivity : ComponentActivity() {
             player?.let { it.playWhenReady = !it.playWhenReady }
             refreshPlayButton(); scheduleHide()
         }
-        rewindButton.setOnClickListener { player?.let { it.seekTo((it.currentPosition - seekBackSeconds * 1000L).coerceAtLeast(0L)) }; scheduleHide() }
-        forwardButton.setOnClickListener { player?.let {
-            val target = it.currentPosition + seekForwardSeconds * 1000L
-            it.seekTo(if (it.duration > 0L) target.coerceAtMost(it.duration) else target)
-        }; scheduleHide() }
+        rewindButton.setOnClickListener { seekRelative(-seekBackSeconds); scheduleHide() }
+        forwardButton.setOnClickListener { seekRelative(seekForwardSeconds); scheduleHide() }
         seekSettingsButton.setOnClickListener { showSeekSettingsDialog() }
         refreshSeekLabels()
         concealControls("startup")
@@ -759,6 +764,36 @@ class MainActivity : ComponentActivity() {
         playPauseButton.text = if (player?.playWhenReady == true) "Pause" else "Play"
     }
 
+    private fun formatSeekTime(ms: Long): String {
+        val total = ms.coerceAtLeast(0L) / 1000L
+        val h = total / 3600L
+        val m = (total / 60L) % 60L
+        val sec = total % 60L
+        return if (h > 0) String.format(Locale.US, "%d:%02d:%02d", h, m, sec)
+            else String.format(Locale.US, "%02d:%02d", m, sec)
+    }
+
+    // Seek feedback is independent of the hidden player controls. Repeated
+    // remote presses refresh this lightweight overlay without displaying menus.
+    private fun seekRelative(seconds: Int) {
+        val active = player ?: return
+        val duration = active.duration.takeIf { it > 0 && it != C.TIME_UNSET }
+        val target = (active.currentPosition + seconds * 1000L)
+            .coerceAtLeast(0L)
+            .let { if (duration != null) it.coerceAtMost(duration) else it }
+        active.seekTo(target)
+        seekTimeLabel.text = if (duration != null)
+            "${formatSeekTime(target)} / ${formatSeekTime(duration)}"
+        else formatSeekTime(target)
+        seekProgressBar.progress = if (duration != null)
+            ((target.toDouble() / duration.toDouble()) * seekProgressBar.max)
+                .roundToInt().coerceIn(0, seekProgressBar.max)
+        else 0
+        seekIndicator.visibility = View.VISIBLE
+        seekIndicator.removeCallbacks(hideSeekIndicator)
+        seekIndicator.postDelayed(hideSeekIndicator, 1800L)
+    }
+
     // Return to the activity that launched us; never open another media URL or
     // relaunch the Plex server when the user presses Back.
     private fun exitToCaller() {
@@ -787,14 +822,11 @@ class MainActivity : ComponentActivity() {
         if (controlPanel.visibility != View.VISIBLE && event.repeatCount == 0) {
             when (keyCode) {
                 KeyEvent.KEYCODE_DPAD_LEFT -> {
-                    player?.let { it.seekTo((it.currentPosition - seekBackSeconds * 1000L).coerceAtLeast(0L)) }
+                    seekRelative(-seekBackSeconds)
                     return true
                 }
                 KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                    player?.let {
-                        val end = it.duration.takeIf { duration -> duration > 0 } ?: Long.MAX_VALUE
-                        it.seekTo((it.currentPosition + seekForwardSeconds * 1000L).coerceAtMost(end))
-                    }
+                    seekRelative(seekForwardSeconds)
                     return true
                 }
             }
