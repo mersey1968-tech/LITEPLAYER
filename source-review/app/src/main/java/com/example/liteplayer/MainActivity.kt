@@ -372,11 +372,15 @@ class MainActivity : ComponentActivity() {
         if (launchedExternally) {
             val pos = player?.currentPosition ?: position
             val dur = player?.duration?.takeIf { it > 0 && it != C.TIME_UNSET } ?: lastKnownDuration
-            setResult(RESULT_OK, Intent("org.videolan.vlc.player.result").apply {
+            // Plezy's Android ExternalPlayerChannel recognizes playback_completion
+            // only when the result action is the MX Player result action. A VLC
+            // result action with end_by is treated as an ordinary stop instead.
+            setResult(RESULT_OK, Intent("com.mxtech.intent.result.VIEW").apply {
                 putExtra("end_by", if (ended) "playback_completion" else "user")
-                putExtra("position", pos.toInt())
+                putExtra("position", pos.coerceIn(0L, Int.MAX_VALUE.toLong()).toInt())
                 putExtra("playback_position", pos)
-                putExtra("duration", dur.toInt())
+                putExtra("duration", dur.coerceIn(0L, Int.MAX_VALUE.toLong()).toInt())
+                // Preserve VLC-compatible extras for other external launchers.
                 putExtra("extra_position", pos)
                 putExtra("extra_duration", dur)
             })
