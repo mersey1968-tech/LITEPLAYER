@@ -1160,9 +1160,18 @@ class MainActivity : ComponentActivity() {
                         smbAccess = it
                         browseSmb(folder)
                     }.onFailure { error ->
+                        // Preserve the actual Java/Android exception and root cause.
+                        // "Unable to initialize SMB access" hides important class-loading
+                        // and configuration failures unrelated to Windows credentials.
+                        val details = generateSequence(error as Throwable?) { it.cause }
+                            .take(5)
+                            .joinToString("\\nCaused by: ") { cause ->
+                                "${cause.javaClass.name}: ${cause.message ?: "(no message)"}"
+                            }
                         AlertDialog.Builder(this)
-                            .setTitle("SMB connection setup failed")
-                            .setMessage(error.message ?: "Unable to initialize SMB access.")
+                            .setTitle("SMB client initialization failed")
+                            .setMessage("This happened before any SMB login was attempted.\\n\\n" +
+                                details + "\\n\\nPlease report this exact error.")
                             .setPositiveButton("Try again") { _, _ -> connectSmb(prefillHost) }
                             .setNegativeButton("Cancel", null).show()
                     }
