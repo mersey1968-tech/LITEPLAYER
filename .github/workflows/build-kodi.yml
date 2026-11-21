@@ -1027,6 +1027,51 @@ jobs:
             sed -i "s|org.xbmc.kodi.$SUFFIX|$PKG.$SUFFIX|g" "$MANIFEST"
             grep -Fq "$PKG.$SUFFIX" "$MANIFEST" || exit 1
           done
+          # Restore external-player intent filters after make apk regenerates its manifest.
+          python3 - "$MANIFEST" "$PACKAGING_DIR/xbmc" <<'PY'
+          import pathlib, sys, xml.etree.ElementTree as ET
+          manifest, root = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+          ns = 'http://schemas.android.com/apk/res/android'
+          ET.register_namespace('android', ns)
+          tree = ET.parse(manifest)
+          app = tree.getroot().find('application')
+          splash = next((a for a in app.findall('activity') if a.get('{%s}name' % ns) in ('.Splash', 'org.xbmc.kodi.Splash')), None)
+          if splash is None: raise SystemExit('Missing Splash activity')
+          def add_filter(action, schemes=(), mime=()):
+              for f in splash.findall('intent-filter'):
+                  if any(a.get('{%s}name' % ns) == action for a in f.findall('action')):
+                      if action.endswith('SEND'): return
+              f = ET.SubElement(splash, 'intent-filter')
+              ET.SubElement(f, 'action', {'{%s}name' % ns: action})
+              ET.SubElement(f, 'category', {'{%s}name' % ns: 'android.intent.category.DEFAULT'})
+              for scheme in schemes: ET.SubElement(f, 'data', {'{%s}scheme' % ns: scheme})
+              for m in mime: ET.SubElement(f, 'data', {'{%s}mimeType' % ns: m})
+          add_filter('android.intent.action.VIEW', schemes=('http','https','content','file','rtsp'))
+          add_filter('android.intent.action.SEND', mime=('video/*','text/plain'))
+          tree.write(manifest, encoding='utf-8', xml_declaration=True)
+          # Ensure the generated Java entry point also forwards SEND payloads.
+          patched = False
+          for p in root.rglob('Splash.java'):
+              java = p.read_text()
+              if 'Intent.ACTION_SEND.equals(intent.getAction())' in java:
+                  patched = True
+                  continue
+              needle = '    intent.setClass(this, org.xbmc.kodi.Main.class);'
+              if needle not in java: continue
+              patch = """    if (Intent.ACTION_SEND.equals(intent.getAction())) {
+                Uri video = intent.getParcelableExtra(Intent.EXTRA_STREAM);
+                if (video == null) {
+                  String url = intent.getStringExtra(Intent.EXTRA_TEXT);
+                  if (url != null && !url.isEmpty()) video = Uri.parse(url);
+                }
+                if (video != null) { intent.setAction(Intent.ACTION_VIEW); intent.setData(video); }
+              }
+          """
+              p.write_text(java.replace(needle, patch + needle, 1))
+              patched = True
+          if not patched: raise SystemExit('Generated Splash.java intent forwarding not found')
+          print('Reapplied external player filters and Java forwarding')
+          PY
           echo "Manifest fixed after make apk; forcing Gradle rebuild"
           export KODI_ANDROID_KEY_ALIAS=androiddebugkey
           export KODI_ANDROID_KEY_PASSWORD=android
@@ -1216,6 +1261,20 @@ jobs:
               echo "::error::Final APK missing provider authority $EXPECTED_PKG.$SUFFIX"; exit 1
             fi
           done
+          # Verify the shipped APK (not just the source manifest) exposes both intents.
+          python3 - /tmp/kodi-manifest-tree.txt <<'PY'
+          import pathlib, re, sys
+          data = pathlib.Path(sys.argv[1]).read_text()
+          splash = re.search(r'E: activity\\b[^\\n]*\\n(?:(?!E: activity\\b).)*?android:name[^\\n]*Splash(?:(?!E: activity\\b).)*', data, re.S)
+          if not splash: raise SystemExit('Final APK missing Splash activity')
+          section = splash.group(0)
+          for action in ('android.intent.action.VIEW', 'android.intent.action.SEND'):
+              if action not in section: raise SystemExit('Final APK missing external intent ' + action)
+          for scheme in ('http','https','content','file','rtsp'):
+              if not re.search(r'android:scheme[^\\n]*"' + scheme + r'"', section):
+                  raise SystemExit('Final APK missing scheme ' + scheme)
+          print('Verified external-player intent filters in final APK')
+          PY
           "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose "$OUT"
           SIZE=$(du -sh "$OUT" | cut -f1)
           echo "✅ Signed APK: $OUT_NAME ($SIZE)"
