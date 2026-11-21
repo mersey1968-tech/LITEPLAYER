@@ -836,6 +836,27 @@ jobs:
               p.write_text(s)
           print(next(x.strip() for x in pathlib.Path(generated).read_text().splitlines() if 'applicationId ' in x))
           PY
+          # Kodi's generated manifest has provider authorities derived from the
+          # original APP_PACKAGE; Gradle applicationId does NOT rewrite them.
+          MANIFEST="$HOME/kodi-build/tools/android/packaging/xbmc/AndroidManifest.xml"
+          python3 - "$MANIFEST" "$PKG" <<'PY'
+          import pathlib, re, sys, xml.etree.ElementTree as ET
+          p, pkg = pathlib.Path(sys.argv[1]), sys.argv[2]
+          if not p.is_file():
+              raise SystemExit(f'Generated manifest missing: {p}')
+          s = p.read_text()
+          authorities = ['media', 'file', 'ytdl']
+          for suffix in authorities:
+              # Replace the authority regardless of the original application ID.
+              pattern = r'(android:authorities=")[^"]+\.' + suffix + r'(")'
+              s, count = re.subn(pattern, lambda m: m.group(1) + pkg + '.' + suffix + m.group(2), s)
+              if count != 1:
+                  raise SystemExit(f'Expected one {suffix} provider authority; found {count}')
+          ET.fromstring(s)
+          p.write_text(s)
+          print('Verified provider authorities:', ', '.join(pkg + '.' + x for x in authorities))
+          PY
+
 
       - name: Build Kodi
         run: |
@@ -1095,6 +1116,20 @@ jobs:
             echo "::error::APK has wrong Android application ID; refusing to upload."
             exit 1
           fi
+          # Verify actual compiled binary AndroidManifest.xml, not source templates.
+          "$ANDROID_HOME/build-tools/34.0.0/aapt" dump xmltree "$OUT" AndroidManifest.xml > /tmp/kodi-manifest-tree.txt
+          for SUFFIX in media file ytdl; do
+            if ! grep -Fq "android:authorities" /tmp/kodi-manifest-tree.txt; then
+              echo "::error::No content provider authorities in final APK"; exit 1
+            fi
+            if ! grep -Fq "$EXPECTED_PKG.$SUFFIX" /tmp/kodi-manifest-tree.txt; then
+              echo "::error::Missing unique provider authority $EXPECTED_PKG.$SUFFIX"; exit 1
+            fi
+          done
+          if grep -Eq 'org\\.xbmc\\.kodi\\.(media|file|ytdl)' /tmp/kodi-manifest-tree.txt; then
+            echo "::error::Original Kodi provider authority remains in APK"; exit 1
+          fi
+          echo "Verified all three content provider authorities in final APK"
           "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose "$OUT"
           SIZE=$(du -sh "$OUT" | cut -f1)
           echo "✅ Signed APK: $OUT_NAME ($SIZE)"
