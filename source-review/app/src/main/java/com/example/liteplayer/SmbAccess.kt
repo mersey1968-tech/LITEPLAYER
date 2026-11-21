@@ -43,9 +43,11 @@ class SmbAccess(username: String, password: String, domain: String = "", authMod
     // Use explicit SMB2/3 negotiation rather than relying on device defaults.
     private val context: CIFSContext = run {
         val props = Properties().apply {
-            setProperty("jcifs.smb.client.minVersion", "SMB202")
+            // Nova normal SMB2 path uses multi-protocol negotiation for
+            // server-root share enumeration, not SMB2-only negotiation.
+            setProperty("jcifs.smb.client.minVersion", "SMB1")
             setProperty("jcifs.smb.client.maxVersion", "SMB311")
-            setProperty("jcifs.smb.client.useSMB2Negotiation", "true")
+            setProperty("jcifs.smb.client.useSMB2Negotiation", "false")
             setProperty("jcifs.smb.client.dfs.disabled", "true")
             setProperty("jcifs.smb.client.attrExpirationPeriod", "30000")
             // Nova disables enforced signing specifically for the IPC share,
@@ -54,7 +56,9 @@ class SmbAccess(username: String, password: String, domain: String = "", authMod
             setProperty("jcifs.smb.client.snd_buf_size", "1048576")
             setProperty("jcifs.smb.client.rcv_buf_size", "1048576")
         }
-        BaseContext(PropertyConfiguration(props)).withCredentials(credentials)
+        val base = BaseContext(PropertyConfiguration(props))
+        if (authMode == "nova-guest") base.withGuestCrendentials()
+        else base.withCredentials(credentials)
     }
 
     /** Close this SMB client's transport pool when browsing finishes or fails.
