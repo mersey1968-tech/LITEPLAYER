@@ -924,7 +924,18 @@ class MainActivity : ComponentActivity() {
         }
         saveProgress()
         player?.playWhenReady = false
-        if (launchedExternally) finish() else showHome()
+        if (launchedExternally) {
+            finish()
+        } else {
+            // A standalone SMB video must return to its containing folder.
+            // The old implementation unconditionally called showHome().
+            val previousUri = uri
+            val smbFolder = if (previousUri?.scheme == "smb") lastSmbFolder else null
+            showHome()
+            if (smbFolder != null && smbAccess != null) {
+                browseSmb(smbFolder)
+            }
+        }
     }
 
     // Catch remote Back before the player view or its controls can consume it.
@@ -959,7 +970,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         if (keyCode == KeyEvent.KEYCODE_BACK) {
-            exitToCaller()
+            // dispatchKeyEvent handles Down once; avoid duplicate navigation.
             return true
         }
 
@@ -1024,7 +1035,8 @@ class MainActivity : ComponentActivity() {
                         Player.STATE_ENDED -> "Ended"
                         else -> "Unknown"
                     }
-                    val cause = started.playerError?.message ?: "No Media3 error reported"
+                    val cause = (started.playerError?.message ?: "No Media3 error reported") +
+                        "\n" + SmbAccess.networkStatus()
                     AlertDialog.Builder(this)
                         .setTitle("Network playback has not started")
                         .setMessage("File: ${next.lastPathSegment.orEmpty()}\n" +
