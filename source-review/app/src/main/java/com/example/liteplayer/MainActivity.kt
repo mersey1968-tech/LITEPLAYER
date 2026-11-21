@@ -853,6 +853,11 @@ class MainActivity : ComponentActivity() {
 
     // Return to Plezy on external playback; return to LitePlayer home for local playback.
     private fun exitToCaller() {
+        // Back on the standalone home screen closes LitePlayer.
+        if (homePanel.visibility == View.VISIBLE) {
+            finish()
+            return
+        }
         saveProgress()
         player?.playWhenReady = false
         if (launchedExternally) finish() else showHome()
