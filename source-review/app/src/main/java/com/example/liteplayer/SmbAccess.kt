@@ -37,6 +37,22 @@ class SmbAccess(username: String, password: String, domain: String = "") {
 
     fun entries(folder: String): List<Pair<String, Boolean>> {
         SmbFile(folder, context).use { directory ->
+            // A server root is NOT an ordinary directory. listFiles() followed
+            // by isDirectory queries opens extra connections to administrative
+            // and IPC shares, which can cause Windows to reject enumeration.
+            // Enumerate share NAMES only, without opening each share.
+            val path = Uri.parse(folder).path.orEmpty()
+            if (path == "/" || path.isEmpty()) {
+                return directory.list()
+                    .asSequence()
+                    .map { it.trimEnd('/') }
+                    .filter { it.isNotBlank() && !it.endsWith("$") &&
+                              !it.equals("IPC$", ignoreCase = true) }
+                    .distinct()
+                    .sortedWith(String.CASE_INSENSITIVE_ORDER)
+                    .map { it to true }
+                    .toList()
+            }
             return directory.listFiles()
                 .map { child -> child.use { it.name to it.isDirectory } }
                 .sortedWith(compareByDescending<Pair<String, Boolean>> { it.second }
