@@ -1010,6 +1010,31 @@ class MainActivity : ComponentActivity() {
         playWhenReady = true
         ended = false
         startPlayer()
+        if (next.scheme == "smb") {
+            // A stalled SMB data source can remain BUFFERING without raising a
+            // PlaybackException. Report it rather than leaving a black screen.
+            val started = player
+            playerView.postDelayed({
+                if (!isFinishing && !isDestroyed && started != null &&
+                    player === started && uri == next && !started.isPlaying &&
+                    started.playbackState != Player.STATE_READY) {
+                    val state = when (started.playbackState) {
+                        Player.STATE_IDLE -> "Idle"
+                        Player.STATE_BUFFERING -> "Buffering"
+                        Player.STATE_ENDED -> "Ended"
+                        else -> "Unknown"
+                    }
+                    val cause = started.playerError?.message ?: "No Media3 error reported"
+                    AlertDialog.Builder(this)
+                        .setTitle("Network playback has not started")
+                        .setMessage("File: ${next.lastPathSegment.orEmpty()}\n" +
+                            "Player state: ${state}\nDetails: ${cause}")
+                        .setPositiveButton("Back to folder") { _, _ -> exitToCaller() }
+                        .setNegativeButton("Keep trying", null)
+                        .show()
+                }
+            }, 15_000L)
+        }
     }
 
     private fun promptForUrl() {
