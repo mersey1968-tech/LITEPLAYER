@@ -84,6 +84,24 @@ class MainActivity : ComponentActivity() {
     private lateinit var seekIndicator: View
     private lateinit var homePanel: View
     private var smbAccess: SmbAccess? = null
+
+    // jcifs holds persistent SMB transports beyond individual SmbFile.close().
+    // Close the entire context on a worker thread when it is no longer used.
+    private fun installSmbAccess(next: SmbAccess) {
+        val previous = smbAccess
+        smbAccess = next
+        if (previous != null && previous !== next) {
+            Thread { previous.disconnect() }.start()
+        }
+    }
+
+    private fun clearSmbAccess() {
+        val previous = smbAccess
+        smbAccess = null
+        if (previous != null) {
+            Thread { previous.disconnect() }.start()
+        }
+    }
     // Some TV remotes deliver the end of a dialog's OK press to the home-screen button.
     // Prevent it from opening Android's file picker after an SMB Connect action.
     private var suppressLocalPickerUntil = 0L
@@ -404,6 +422,7 @@ class MainActivity : ComponentActivity() {
         saveProgress()
         progressHandler.removeCallbacks(progressSaver)
         releasePlayer()
+        clearSmbAccess()
         super.onStop()
     }
 
@@ -1121,15 +1140,18 @@ class MainActivity : ComponentActivity() {
             .setCancelable(false).create()
         progress.show()
         Thread {
-            // Try the standard anonymous SMB session and the empty NTLM session
-            // separately. These are distinct forms of authentication in jcifs.
-            val attempts = listOf("anonymous", "empty-ntlm")
+            // Windows showed RYZEN\\GUEST sessions from successful browsing.
+            // Guest and anonymous are different NTLM session types.
+            // Try guest first and close failed contexts immediately.
+            val attempts = listOf("guest", "anonymous")
             var success: SmbAccess? = null
             var listing: List<Pair<String, Boolean>>? = null
             val problems = mutableListOf<String>()
             for (mode in attempts) {
+                var trial: SmbAccess? = null
                 val result = runCatching {
                     val access = SmbAccess("", "", authMode = mode)
+                    trial = access
                     val entries = access.entries(folder)
                     access to entries
                 }
@@ -1137,6 +1159,7 @@ class MainActivity : ComponentActivity() {
                     success = pair.first
                     listing = pair.second
                 }.onFailure { ex ->
+                    trial?.disconnect()
                     val reason = generateSequence(ex as Throwable?) { it.cause }
                         .take(4)
                         .joinToString(" → ") { cause ->
@@ -1154,8 +1177,8 @@ class MainActivity : ComponentActivity() {
                 progress.dismiss()
                 val access = success
                 if (access != null) {
-                    smbAccess = access
-                    browseSmb(folder)
+                    installSmbAccess(access)
+                    browseSmb(folder, listing)
                 } else {
                     AlertDialog.Builder(this)
                         .setTitle("Cannot list shared folders")
@@ -1229,7 +1252,7 @@ class MainActivity : ComponentActivity() {
                             }
                             pending.dismiss()
                             connected.onSuccess {
-                                smbAccess = it
+                                installSmbAccess(it)
                                 browseSmb(folder)
                             }.onFailure { error ->
                                 val details = generateSequence(error as Throwable?) { it.cause }
@@ -1250,13 +1273,13 @@ class MainActivity : ComponentActivity() {
             }.setNegativeButton("Cancel", null).show()
     }
 
-    private fun browseSmb(folder: String) {
+    private fun browseSmb(folder: String, preloadedEntries: List<Pair<String, Boolean>>? = null) {
         val access = smbAccess ?: return connectSmb()
         val pending = AlertDialog.Builder(this).setMessage("Opening network folder…")
             .setCancelable(false).create()
         pending.show()
         Thread {
-            val result = runCatching { access.entries(folder) }
+            val result = runCatching { preloadedEntries ?: access.entries(folder) }
             runOnUiThread {
                 if (isFinishing || isDestroyed) { pending.dismiss(); return@runOnUiThread }
                 pending.dismiss()
