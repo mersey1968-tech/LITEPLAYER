@@ -323,7 +323,14 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startingPosition(u: Uri, source: Intent?): Long {
-        val supplied = listOf("position", "extra_position", "start_position", "startPosition", "resume_position", "resumePosition")
+        // Plezy sends from_start=true for "Play from beginning" and omits
+        // position/startfrom entirely. Do not load an old local bookmark then.
+        // This flag is also used by VLC-style external-player intents.
+        if (source?.getBooleanExtra("from_start", false) == true) {
+            externalStartPosition = 0L
+            return 0L
+        }
+        val supplied = listOf("position", "startfrom", "extra_position", "start_position", "startPosition", "resume_position", "resumePosition")
             .firstNotNullOfOrNull { key ->
                 if (source?.hasExtra(key) == true) {
                     when (val v = source.extras?.get(key)) {
@@ -334,10 +341,9 @@ class MainActivity : ComponentActivity() {
                 } else null
             }
         externalStartPosition = supplied?.coerceAtLeast(0L) ?: 0L
-        // Respect an explicit 0 from Plezy's "Play from beginning".
-        // Only restore a previous position when the caller did not supply one.
-        val local = restoredPosition(u)
-        return supplied?.coerceAtLeast(0L) ?: local
+        // Prefer the position explicitly supplied by Plezy. Fall back to
+        // LitePlayer's local bookmark only when no start policy was supplied.
+        return supplied?.coerceAtLeast(0L) ?: restoredPosition(u)
     }
 
     private fun restoredPosition(u: Uri): Long =
