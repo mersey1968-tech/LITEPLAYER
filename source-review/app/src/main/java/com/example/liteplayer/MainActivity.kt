@@ -1017,7 +1017,7 @@ class MainActivity : ComponentActivity() {
             setPadding(36, 12, 36, 12)
         }
         val server = EditText(this).apply {
-            hint = "smb://192.168.1.10/"
+            hint = "Computer name or IP address"
             setSingleLine(true)
             setText(prefs.getString("share", ""))
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
@@ -1040,12 +1040,14 @@ class MainActivity : ComponentActivity() {
             .setView(fields)
             .setPositiveButton("Connect") { _, _ ->
                 suppressLocalPickerUntil = SystemClock.uptimeMillis() + 2500L
-                val folder = server.text.toString().trim().replace('\\', '/')
-                    .let { if (it.endsWith("/")) it else "${it}/" }
+                val entered = server.text.toString().trim().replace('\\', '/')
+                val withScheme = if (entered.startsWith("smb://", ignoreCase = true)) entered
+                                 else "smb://${entered.removePrefix("//")}"
+                val folder = if (withScheme.endsWith("/")) withScheme else "${withScheme}/"
                 val parsed = Uri.parse(folder)
                 if (parsed.scheme != "smb" || parsed.host.isNullOrBlank() ||
                     parsed.userInfo != null) {
-                    Toast.makeText(this, "Use smb://server/ (share optional)", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this, "Enter your computer name or IP address", Toast.LENGTH_LONG).show()
                 } else {
                     val user = username.text.toString().trim()
                     // Save only the server/share path and username, never the password.
