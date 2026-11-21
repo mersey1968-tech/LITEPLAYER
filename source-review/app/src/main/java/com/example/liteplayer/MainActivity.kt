@@ -20,6 +20,8 @@ import android.widget.Button
 import android.widget.TextView
 import android.widget.ProgressBar
 import android.widget.EditText
+import android.text.InputType
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import android.widget.Toast
 import android.provider.OpenableColumns
 import org.json.JSONArray
@@ -73,6 +75,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var subtitleButton: Button
     private lateinit var seekIndicator: View
     private lateinit var homePanel: View
+    private var smbAccess: SmbAccess? = null
     private lateinit var seekTimeLabel: TextView
     private lateinit var seekProgressBar: ProgressBar
     private val hideSeekIndicator = Runnable { seekIndicator.visibility = View.GONE }
@@ -290,14 +293,7 @@ class MainActivity : ComponentActivity() {
         findViewById<Button>(R.id.browseFilesButton).setOnClickListener {
             picker.launch(arrayOf("video/*", "audio/*"))
         }
-        findViewById<Button>(R.id.networkFilesButton).setOnClickListener {
-            AlertDialog.Builder(this)
-                .setTitle("Network shares")
-                .setMessage("Choose an SMB or NAS location from a file provider installed on your Shield. Native SMB browsing is not included in this preview.")
-                .setPositiveButton("Browse") { _, _ -> picker.launch(arrayOf("video/*", "audio/*")) }
-                .setNegativeButton("Cancel", null)
-                .show()
-        }
+        findViewById<Button>(R.id.networkFilesButton).setOnClickListener { connectSmb() }
         findViewById<Button>(R.id.openUrlButton).setOnClickListener { promptForUrl() }
         findViewById<Button>(R.id.recentVideosButton).setOnClickListener { showRecents() }
         // Always reachable from the manually revealed transport panel.
@@ -583,8 +579,18 @@ class MainActivity : ComponentActivity() {
             // Start local/LAN streams sooner without reducing the sustained buffer.
             .setBufferDurationsMs(30_000, 60_000, 1_500, 5_000)
             .build()
-        player = ExoPlayer.Builder(this, factory)
+        val builder = ExoPlayer.Builder(this, factory)
             .setLoadControl(loadControl)
+        if (u.scheme == "smb") {
+            val access = smbAccess
+            if (access == null) {
+                Toast.makeText(this, "Reconnect to your SMB share", Toast.LENGTH_LONG).show()
+                showHome()
+                return
+            }
+            builder.setMediaSourceFactory(DefaultMediaSourceFactory(access.factory()))
+        }
+        player = builder
             .setAudioAttributes(audioAttrs, true)
             .build()
             .also {
@@ -990,6 +996,97 @@ class MainActivity : ComponentActivity() {
                 val path = items.optJSONObject(index)?.optString("uri").orEmpty()
                 if (path.isNotBlank()) openStandalone(Uri.parse(path))
             }.setNegativeButton("Cancel", null).show()
+    }
+
+    private fun connectSmb() {
+        val prefs = getSharedPreferences("smb_connection", MODE_PRIVATE)
+        val fields = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(36, 12, 36, 12)
+        }
+        val server = EditText(this).apply {
+            hint = "smb://192.168.1.10/Movies/"
+            setSingleLine(true)
+            setText(prefs.getString("share", ""))
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
+        }
+        val username = EditText(this).apply {
+            hint = "Username (leave blank for guest)"
+            setSingleLine(true)
+            setText(prefs.getString("user", ""))
+        }
+        val password = EditText(this).apply {
+            hint = "Password (not saved)"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            setSingleLine(true)
+        }
+        fields.addView(server)
+        fields.addView(username)
+        fields.addView(password)
+        AlertDialog.Builder(this)
+            .setTitle("Connect to SMB / NAS")
+            .setView(fields)
+            .setPositiveButton("Connect") { _, _ ->
+                val folder = server.text.toString().trim().replace('\\', '/')
+                    .let { if (it.endsWith("/")) it else "$" + "{it}/" }
+                val parsed = Uri.parse(folder)
+                if (parsed.scheme != "smb" || parsed.host.isNullOrBlank() ||
+                    parsed.pathSegments.isEmpty() || parsed.userInfo != null) {
+                    Toast.makeText(this, "Use smb://server/share/", Toast.LENGTH_LONG).show()
+                } else {
+                    val user = username.text.toString().trim()
+                    // Save only the server/share path and username, never the password.
+                    prefs.edit().putString("share", folder).putString("user", user).apply()
+                    smbAccess = SmbAccess(user, password.text.toString())
+                    browseSmb(folder)
+                }
+            }.setNegativeButton("Cancel", null).show()
+    }
+
+    private fun browseSmb(folder: String) {
+        val access = smbAccess ?: return connectSmb()
+        val pending = AlertDialog.Builder(this).setMessage("Opening network folder…")
+            .setCancelable(false).create()
+        pending.show()
+        Thread {
+            val result = runCatching { access.entries(folder) }
+            runOnUiThread {
+                if (isFinishing || isDestroyed) { pending.dismiss(); return@runOnUiThread }
+                pending.dismiss()
+                result.onFailure { error ->
+                    AlertDialog.Builder(this).setTitle("Network error")
+                        .setMessage(error.message ?: "Unable to open SMB share")
+                        .setPositiveButton("Retry") { _, _ -> browseSmb(folder) }
+                        .setNegativeButton("Cancel", null).show()
+                }.onSuccess { entries ->
+                    val showUp = folder.substringAfter("smb://").trimEnd('/').contains('/')
+                    val filtered = entries.filter {
+                        it.second || it.first.substringAfterLast('.').lowercase() in
+                            setOf("mkv", "mp4", "avi", "mov", "m4v", "ts", "m2ts", "webm", "mpg", "mpeg")
+                    }
+                    val labels = (if (showUp) listOf("..  Up one folder") else emptyList()) +
+                        filtered.map { (name, dir) ->
+                            (if (dir) "📁  " else "▶  ") + name.trimEnd('/')
+                        }
+                    AlertDialog.Builder(this).setTitle(folder)
+                        .setItems(labels.toTypedArray()) { _, which ->
+                            if (showUp && which == 0) {
+                                val up = folder.trimEnd('/').substringBeforeLast('/') + "/"
+                                browseSmb(up)
+                            } else {
+                                val (name, isDir) = filtered[which - (if (showUp) 1 else 0)]
+                                val url = folder + Uri.encode(name.trimEnd('/')) + if (isDir) "/" else ""
+                                if (isDir) browseSmb(url)
+                                else {
+                                    releasePlayer()
+                                    openStandalone(Uri.parse(url))
+                                }
+                            }
+                        }
+                        .setNegativeButton("Home", null).show()
+                }
+            }
+        }.start()
     }
 
     // ---- Subtitle size -----------------------------------------------------------------------
