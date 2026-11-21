@@ -1125,12 +1125,12 @@ class MainActivity : ComponentActivity() {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
         }
         val username = EditText(this).apply {
-            hint = "Username (leave blank for guest)"
+            hint = "Windows username (blank for anonymous)"
             setSingleLine(true)
             setText(prefs.getString("user", ""))
         }
         val password = EditText(this).apply {
-            hint = "Password (not saved)"
+            hint = "Windows account password (not PIN)"
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
             setSingleLine(true)
         }
@@ -1139,6 +1139,7 @@ class MainActivity : ComponentActivity() {
         fields.addView(password)
         AlertDialog.Builder(this)
             .setTitle("Connect to SMB / NAS")
+            .setMessage("Leave both login fields empty for anonymous access, use guest for guest login, or enter your Windows account name and password. Windows PINs do not work for SMB.")
             .setView(fields)
             .setPositiveButton("Connect") { _, _ ->
                 suppressLocalPickerUntil = SystemClock.uptimeMillis() + 2500L
@@ -1180,9 +1181,22 @@ class MainActivity : ComponentActivity() {
                 if (isFinishing || isDestroyed) { pending.dismiss(); return@runOnUiThread }
                 pending.dismiss()
                 result.onFailure { error ->
-                    AlertDialog.Builder(this).setTitle("Network error")
-                        .setMessage(error.message ?: "Unable to open SMB share")
-                        .setPositiveButton("Retry") { _, _ -> browseSmb(folder) }
+                    val causeChain = generateSequence(error as Throwable?) { it.cause }
+                        .mapNotNull { it.message }.joinToString(" | ")
+                    val denied = causeChain.contains("LOGON_FAILURE", ignoreCase = true) ||
+                        causeChain.contains("ACCESS_DENIED", ignoreCase = true) ||
+                        causeChain.contains("authentication", ignoreCase = true) ||
+                        causeChain.contains("STATUS_LOGON", ignoreCase = true)
+                    val help = if (denied)
+                        "The computer rejected the login. 'Everyone' sharing permission does not remove Windows account authentication. Use your Windows account password (not a PIN), or confirm that the server explicitly permits anonymous/guest access."
+                    else "Check that SMB sharing is enabled and the selected computer is reachable."
+                    AlertDialog.Builder(this)
+                        .setTitle(if (denied) "SMB login rejected" else "SMB connection failed")
+                        .setMessage("${help}\n\nDetails: ${causeChain.take(450)}")
+                        .setPositiveButton("Change login") { _, _ ->
+                            connectSmb(folder.substringAfter("smb://").substringBefore('/'))
+                        }
+                        .setNeutralButton("Retry") { _, _ -> browseSmb(folder) }
                         .setNegativeButton("Cancel", null).show()
                 }.onSuccess { entries ->
                     val showUp = folder.substringAfter("smb://").trimEnd('/').contains('/')
