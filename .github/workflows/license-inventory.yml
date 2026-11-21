@@ -1,5 +1,8 @@
 name: License dependency inventory
 on:
+  push:
+    branches: [liteplayer-public-launch-prep]
+    paths: ['.github/workflows/license-inventory.yml']
   workflow_dispatch:
 jobs:
   dependency-report:
