@@ -954,6 +954,67 @@ jobs:
           echo "Patched final Gradle manifest provider authorities:"
           grep 'android:authorities' "$MANIFEST"
 
+          # Accept external-player VIEW/SEND requests and forward the video URI to Kodi Main.
+          # Kodi's default VIEW filter requires a MIME type; some callers omit it.
+          python3 - "$PACKAGING_DIR/xbmc/AndroidManifest.xml" "$HOME/kodi/tools/android/packaging/xbmc/src/Splash.java.in" "$PACKAGING_DIR/xbmc" <<'PY'
+          import pathlib, sys, xml.etree.ElementTree as ET
+          manifest, template, root = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]), pathlib.Path(sys.argv[3])
+          text = manifest.read_text()
+          insertion = """<intent-filter>
+              <action android:name="android.intent.action.VIEW"/>
+              <category android:name="android.intent.category.DEFAULT"/>
+              <category android:name="android.intent.category.BROWSABLE"/>
+              <data android:scheme="http"/>
+              <data android:scheme="https"/>
+              <data android:scheme="content"/>
+              <data android:scheme="file"/>
+              <data android:scheme="rtsp"/>
+            </intent-filter>
+            <intent-filter>
+              <action android:name="android.intent.action.SEND"/>
+              <category android:name="android.intent.category.DEFAULT"/>
+              <data android:mimeType="video/*"/>
+              <data android:mimeType="text/plain"/>
+            </intent-filter>"""
+          marker = '<activity\n            android:name=".Splash"'
+          pos = text.find(marker)
+          if pos < 0: raise SystemExit('Splash activity not found in generated manifest')
+          end = text.find('</intent-filter>', pos)
+          if end < 0: raise SystemExit('Splash launcher filter not found')
+          end += len('</intent-filter>')
+          text = text[:end] + '\n            ' + insertion + text[end:]
+          ET.fromstring(text)
+          manifest.write_text(text)
+          # Kodi Splash normally forwards its intent to Main. Normalize SEND payloads
+          # to ACTION_VIEW, preserving content URIs and any permission grant flags.
+          needle = '    intent.setClass(this, @APP_PACKAGE@.Main.class);'
+          replacement = """    if (Intent.ACTION_SEND.equals(intent.getAction())) {
+              Uri video = intent.getParcelableExtra(Intent.EXTRA_STREAM);
+              if (video == null) {
+                String url = intent.getStringExtra(Intent.EXTRA_TEXT);
+                if (url != null && !url.isEmpty()) video = Uri.parse(url);
+              }
+              if (video != null) {
+                intent.setAction(Intent.ACTION_VIEW);
+                intent.setData(video);
+              }
+            }
+            intent.setClass(this, @APP_PACKAGE@.Main.class);"""
+          files = [template] + list(root.rglob('Splash.java'))
+          changed = 0
+          for p in files:
+            if not p.is_file(): continue
+            java = p.read_text()
+            actual = needle if needle in java else '    intent.setClass(this, org.xbmc.kodi.Main.class);'
+            if actual not in java: continue
+            java = java.replace(actual, replacement.replace('@APP_PACKAGE@', 'org.xbmc.kodi') if actual != needle else replacement, 1)
+            p.write_text(java)
+            changed += 1
+            print('Patched intent forwarding:', p)
+          if not changed: raise SystemExit('No Splash Java source patched')
+          print('External player intent filters installed')
+          PY
+
           # --- PHASE 2: Run make apk (bundle + shared + libs + python + java + gradle) ---
           cd "$KODI_SRC"
           make -C "$BUILD_DIR" apk 2>&1 | tee ~/apk-package.log
