@@ -1019,6 +1019,17 @@ jobs:
           cd "$KODI_SRC"
           make -C "$BUILD_DIR" apk 2>&1 | tee ~/apk-package.log
 
+          # make apk regenerates the manifest; patch the exact Gradle input again.
+          PKG="${{ github.event.inputs.package_id || 'com.kodi.liteplayer' }}"
+          MANIFEST="$PACKAGING_DIR/xbmc/AndroidManifest.xml"
+          test -f "$MANIFEST"
+          for SUFFIX in media file ytdl; do
+            sed -i "s|org.xbmc.kodi.$SUFFIX|$PKG.$SUFFIX|g" "$MANIFEST"
+            grep -Fq "$PKG.$SUFFIX" "$MANIFEST" || exit 1
+          done
+          echo "Manifest fixed after make apk; forcing Gradle rebuild"
+          (cd "$PACKAGING_DIR" && ANDROID_HOME="$ANDROID_SDK_ROOT" ./gradlew --no-daemon --rerun-tasks assembleRelease) 2>&1 | tee -a ~/apk-package.log
+
           # --- PHASE 3: Force-inject into packaging assets and RE-RUN gradle ---
           # make apk already ran gradle, but the assets may not have included our
           # custom config if the cmake/bundle pipeline didn't pick them up.
