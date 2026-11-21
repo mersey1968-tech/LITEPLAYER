@@ -6,7 +6,9 @@ import androidx.media3.datasource.BaseDataSource
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
 import jcifs.CIFSContext
-import jcifs.context.SingletonContext
+import jcifs.context.BaseContext
+import jcifs.config.PropertyConfiguration
+import java.util.Properties
 import jcifs.smb.NtlmPasswordAuthenticator
 import jcifs.smb.SmbFile
 import jcifs.smb.SmbRandomAccessFile
@@ -36,8 +38,24 @@ class SmbAccess(username: String, password: String, domain: String = "", authMod
             } else NtlmPasswordAuthenticator(domain, username, password)
         }
     }
-    private val context: CIFSContext = SingletonContext.getInstance()
-        .withCredentials(credentials)
+    // Nova Video Player (Apache-2.0) SMB compatibility settings, adapted
+    // from nova-video-player/aos-FileCoreLibrary JcifsUtils.java.
+    // Use explicit SMB2/3 negotiation rather than relying on device defaults.
+    private val context: CIFSContext = run {
+        val props = Properties().apply {
+            setProperty("jcifs.smb.client.minVersion", "SMB202")
+            setProperty("jcifs.smb.client.maxVersion", "SMB311")
+            setProperty("jcifs.smb.client.useSMB2Negotiation", "true")
+            setProperty("jcifs.smb.client.dfs.disabled", "true")
+            setProperty("jcifs.smb.client.attrExpirationPeriod", "30000")
+            // Nova disables enforced signing specifically for the IPC share,
+            // allowing compatibility with Windows server enumeration.
+            setProperty("jcifs.smb.client.ipcSigningEnforced", "false")
+            setProperty("jcifs.smb.client.snd_buf_size", "1048576")
+            setProperty("jcifs.smb.client.rcv_buf_size", "1048576")
+        }
+        BaseContext(PropertyConfiguration(props)).withCredentials(credentials)
+    }
 
     fun entries(folder: String): List<Pair<String, Boolean>> {
         SmbFile(folder, context).use { directory ->
