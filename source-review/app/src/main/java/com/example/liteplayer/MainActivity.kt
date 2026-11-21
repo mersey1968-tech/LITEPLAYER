@@ -102,6 +102,8 @@ class MainActivity : ComponentActivity() {
     private val frameTimes = ArrayList<Long>()
 
     private var activeIdentity: String? = null
+    private var cachedProgressIdentity: String? = null
+    private var cachedProgressKey: String? = null
     private var externalStartPosition = 0L
     private var lastKnownDuration = 0L
     private var launchedExternally = false
@@ -250,13 +252,28 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        intent.data?.let {
+        intent.data?.let { nextUri ->
+            // Keep the video/audio pipeline alive for consecutive external playback requests.
+            // Save the outgoing episode before changing its identity or URL.
+            saveProgress()
             launchedExternally = intent.action == Intent.ACTION_VIEW
-            releasePlayer() // Save outgoing URI and identity BEFORE replacing them.
             setIntent(intent)
-            uri = it; activeIdentity = identityFor(it, intent); position = startingPosition(it, intent); ended = false
+            uri = nextUri
+            activeIdentity = identityFor(nextUri, intent)
+            position = startingPosition(nextUri, intent)
+            ended = false
             playWhenReady = true
-            startPlayer()
+            manualAudioChoice = false
+            lastAutoAudioKey = null
+            val existing = player
+            if (existing != null) {
+                existing.setMediaItem(buildMediaItemWithSubtitles(nextUri))
+                if (position > 0L) existing.seekTo(position)
+                existing.playWhenReady = true
+                existing.prepare()
+            } else {
+                startPlayer()
+            }
         }
     }
 
@@ -294,9 +311,13 @@ class MainActivity : ComponentActivity() {
 
     private fun progressKey(u: Uri): String {
         val identity = activeIdentity ?: identityFor(u, null)
+        if (cachedProgressIdentity == identity) cachedProgressKey?.let { return it }
         val digest = MessageDigest.getInstance("SHA-256")
             .digest(identity.toByteArray(Charsets.UTF_8))
-        return digest.joinToString("") { "%02x".format(it) }
+        val key = digest.joinToString("") { "%02x".format(it) }
+        cachedProgressIdentity = identity
+        cachedProgressKey = key
+        return key
     }
 
     private fun startingPosition(u: Uri, source: Intent?): Long {
@@ -333,7 +354,7 @@ class MainActivity : ComponentActivity() {
             clearProgress()
         } else if (p.currentPosition > 0L) {
             getSharedPreferences("playback_progress", MODE_PRIVATE).edit()
-                .putLong(progressKey(u), p.currentPosition).commit()
+                .putLong(progressKey(u), p.currentPosition).apply()
         }
     }
 
@@ -444,7 +465,8 @@ class MainActivity : ComponentActivity() {
             .build()
 
         val loadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(30_000, 60_000, 2_500, 5_000)
+            // Start local/LAN streams sooner without reducing the sustained buffer.
+            .setBufferDurationsMs(30_000, 60_000, 1_500, 5_000)
             .build()
         player = ExoPlayer.Builder(this, factory)
             .setLoadControl(loadControl)
@@ -458,7 +480,7 @@ class MainActivity : ComponentActivity() {
                 playerView.player = it
                 restoreSubtitleStyleAfterRefresh()
                 it.setMediaItem(buildMediaItemWithSubtitles(u))
-                it.seekTo(position)
+                if (position > 0L) it.seekTo(position)
                 it.playWhenReady = playWhenReady
                 it.prepare()
                 // No playback-state callback is permitted to show controls.
