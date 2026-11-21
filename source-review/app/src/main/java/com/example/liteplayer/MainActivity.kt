@@ -1405,6 +1405,20 @@ class MainActivity : ComponentActivity() {
                             scanForSmb()
                         }
                     }
+                    // Intercept the actual Android TV remote Back key in this
+                    // directory dialog, instead of letting Activity exit home.
+                    folderDialog.setOnKeyListener { _, keyCode, event ->
+                        if (keyCode == KeyEvent.KEYCODE_BACK) {
+                            if (event.action == KeyEvent.ACTION_UP) {
+                                folderDialog.dismiss()
+                                if (showUp) {
+                                    val parent = folder.trimEnd('/').substringBeforeLast('/') + "/"
+                                    browseSmb(parent)
+                                } else scanForSmb()
+                            }
+                            true
+                        } else false
+                    }
                     folderDialog.show()
                 }
             }
