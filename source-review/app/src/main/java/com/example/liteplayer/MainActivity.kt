@@ -282,6 +282,25 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+            if (uri?.scheme != "smb") return
+            val details = generateSequence(error as Throwable?) { it.cause }
+                .take(5)
+                .joinToString("\nCaused by: ") { cause ->
+                    "${cause.javaClass.simpleName}: ${cause.message ?: "(no message)"}"
+                }
+            val failedUri = uri?.toString().orEmpty()
+            AlertDialog.Builder(this@MainActivity)
+                .setTitle("Cannot open network video")
+                .setMessage("File: ${failedUri.substringAfterLast('/')}\n\n" +
+                    details.take(800))
+                .setPositiveButton("Back to folder") { _, _ ->
+                    exitToCaller()
+                }
+                .setNegativeButton("Close", null)
+                .show()
+        }
+
         override fun onRenderedFirstFrame() {
             // Start with a clean picture. A tap on the video reveals PlayerView controls.
             infoText.visibility = View.GONE
