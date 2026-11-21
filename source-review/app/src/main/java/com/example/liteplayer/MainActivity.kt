@@ -268,7 +268,9 @@ class MainActivity : ComponentActivity() {
             val existing = player
             if (existing != null) {
                 existing.setMediaItem(buildMediaItemWithSubtitles(nextUri))
-                if (position > 0L) existing.seekTo(position)
+                // Explicitly seek even when position is zero: a new episode must not
+                // inherit the last video's playback position.
+                existing.seekTo(position)
                 existing.playWhenReady = true
                 existing.prepare()
             } else {
@@ -332,10 +334,10 @@ class MainActivity : ComponentActivity() {
                 } else null
             }
         externalStartPosition = supplied?.coerceAtLeast(0L) ?: 0L
-        // A caller's explicit zero can be a default placeholder, not a user
-        // request to discard an existing local resume point.
+        // Respect an explicit 0 from Plezy's "Play from beginning".
+        // Only restore a previous position when the caller did not supply one.
         val local = restoredPosition(u)
-        return if (supplied != null && supplied > 0L) supplied else local
+        return supplied?.coerceAtLeast(0L) ?: local
     }
 
     private fun restoredPosition(u: Uri): Long =
