@@ -110,6 +110,20 @@ class MainActivity : ComponentActivity() {
     private var lastKnownDuration = 0L
     private var launchedExternally = false
     private var ended = false
+    // Optional playlist contract for a future Plezy integration. Plezy currently
+    // provides only one stream, so the stable player never enters this path.
+    private var queuedNextUri: Uri? = null
+
+    private fun nextEpisodeFrom(source: Intent?): Uri? {
+        val raw = source?.getStringExtra("next_episode_url")?.trim().orEmpty()
+        if (raw.isEmpty()) return null
+        val candidate = runCatching { Uri.parse(raw) }.getOrNull() ?: return null
+        return candidate.takeIf { it.scheme in listOf("http", "https", "content", "file") }
+    }
+
+    private fun mediaQueue(current: Uri): List<MediaItem> =
+        listOf(buildMediaItemWithSubtitles(current)) +
+            listOfNotNull(queuedNextUri?.takeUnless { it == current }?.let(::buildMediaItemWithSubtitles))
 
     private val picker = registerForActivityResult(ActivityResultContracts.OpenDocument()) {
         if (it == null) {
@@ -146,6 +160,22 @@ class MainActivity : ComponentActivity() {
     }
 
     private val listener = object : Player.Listener {
+        override fun onMediaItemTransition(item: MediaItem?, reason: Int) {
+            if (reason != Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) return
+            val next = queuedNextUri ?: return
+            // The old episode finished. Update local state without destroying
+            // the ExoPlayer instance or its SurfaceView / HDR / AFR chain.
+            clearProgress()
+            uri = next
+            activeIdentity = identityFor(next, null)
+            queuedNextUri = null
+            position = 0L
+            lastKnownDuration = 0L
+            ended = false
+            manualAudioChoice = false
+            lastAutoAudioKey = null
+        }
+
         override fun onTracksChanged(tracks: Tracks) {
             val format = tracks.groups
                 .firstOrNull { it.type == C.TRACK_TYPE_VIDEO && it.isSelected }
@@ -276,6 +306,7 @@ class MainActivity : ComponentActivity() {
             playWhenReady = it.getBoolean("play", true)
         }
         launchedExternally = intent?.action == Intent.ACTION_VIEW
+        queuedNextUri = nextEpisodeFrom(intent)
         // Reconstruct the same identity after activity recreation so saves and restores
         // always address the same entry in SharedPreferences.
         if (uri != null) activeIdentity = identityFor(uri!!, intent)
@@ -300,6 +331,7 @@ class MainActivity : ComponentActivity() {
             launchedExternally = intent.action == Intent.ACTION_VIEW
             setIntent(intent)
             uri = nextUri
+            queuedNextUri = nextEpisodeFrom(intent)
             activeIdentity = identityFor(nextUri, intent)
             position = startingPosition(nextUri, intent)
             ended = false
@@ -308,7 +340,7 @@ class MainActivity : ComponentActivity() {
             lastAutoAudioKey = null
             val existing = player
             if (existing != null) {
-                existing.setMediaItem(buildMediaItemWithSubtitles(nextUri))
+                existing.setMediaItems(mediaQueue(nextUri))
                 // Explicitly seek even when position is zero: a new episode must not
                 // inherit the last video's playback position.
                 existing.seekTo(position)
@@ -532,7 +564,7 @@ class MainActivity : ComponentActivity() {
                 it.addAnalyticsListener(audioAnalytics)
                 playerView.player = it
                 restoreSubtitleStyleAfterRefresh()
-                it.setMediaItem(buildMediaItemWithSubtitles(u))
+                it.setMediaItems(mediaQueue(u))
                 if (position > 0L) it.seekTo(position)
                 it.playWhenReady = playWhenReady
                 it.prepare()
