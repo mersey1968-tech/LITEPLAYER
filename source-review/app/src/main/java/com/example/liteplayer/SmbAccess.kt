@@ -16,11 +16,15 @@ import java.io.IOException
  * SMB2/3 browsing and random-access streaming. Credentials remain in RAM and
  * are never placed in a URI, intent, log, or preference file.
  */
-class SmbAccess(username: String, password: String, domain: String = "") {
+class SmbAccess(username: String, password: String, domain: String = "", authMode: String = "auto") {
     // jcifs-ng uses distinct authentication types. An ordinary authenticator with
     // empty strings is not the same as an anonymous/null SMB session.
     private val credentials: NtlmPasswordAuthenticator = when {
-        username.isBlank() && password.isBlank() ->
+        authMode == "guest" ->
+            NtlmPasswordAuthenticator(NtlmPasswordAuthenticator.AuthenticationType.GUEST)
+        authMode == "empty-ntlm" ->
+            NtlmPasswordAuthenticator("", "", "")
+        authMode == "anonymous" || (username.isBlank() && password.isBlank()) ->
             NtlmPasswordAuthenticator(NtlmPasswordAuthenticator.AuthenticationType.NULL)
         username.equals("guest", ignoreCase = true) && password.isBlank() ->
             NtlmPasswordAuthenticator(NtlmPasswordAuthenticator.AuthenticationType.GUEST)
