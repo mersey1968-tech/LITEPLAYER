@@ -57,6 +57,13 @@ class SmbAccess(username: String, password: String, domain: String = "", authMod
         BaseContext(PropertyConfiguration(props)).withCredentials(credentials)
     }
 
+    /** Close this SMB client's transport pool when browsing finishes or fails.
+     * Always call off the Android main thread.
+     */
+    fun disconnect() {
+        runCatching { context.close() }
+    }
+
     fun entries(folder: String): List<Pair<String, Boolean>> {
         SmbFile(folder, context).use { directory ->
             // A server root is NOT an ordinary directory. listFiles() followed
@@ -95,18 +102,20 @@ class SmbAccess(username: String, password: String, domain: String = "", authMod
                 val u = dataSpec.uri
                 if (u.scheme != "smb") throw IOException("Not an SMB URL")
                 val opened = SmbFile(u.toString(), context).openRandomAccess("r")
-                val length = opened.length()
-                if (dataSpec.position > length) {
-                    opened.close()
-                    throw IOException("Seek beyond file size")
+                try {
+                    val length = opened.length()
+                    if (dataSpec.position > length) throw IOException("Seek beyond file size")
+                    opened.seek(dataSpec.position)
+                    file = opened
+                    openedUri = u
+                    left = if (dataSpec.length == C.LENGTH_UNSET.toLong()) length - dataSpec.position
+                           else minOf(dataSpec.length, length - dataSpec.position)
+                    transferStarted(dataSpec)
+                    return left
+                } catch (ex: Exception) {
+                    runCatching { opened.close() }
+                    throw ex
                 }
-                opened.seek(dataSpec.position)
-                file = opened
-                openedUri = u
-                left = if (dataSpec.length == C.LENGTH_UNSET.toLong()) length - dataSpec.position
-                       else minOf(dataSpec.length, length - dataSpec.position)
-                transferStarted(dataSpec)
-                return left
             } catch (ex: Exception) {
                 throw IOException("Unable to open SMB stream", ex)
             }
