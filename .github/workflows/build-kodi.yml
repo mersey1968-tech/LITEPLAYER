@@ -1279,7 +1279,8 @@ jobs:
               if not re.search(r'android:scheme[^\\n]*"' + scheme + r'"', section):
                   raise SystemExit('Final APK missing scheme ' + scheme)
           print('Verified external-player intent filters in final APK')
-          PY         "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose "$OUT"
+          PY
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose "$OUT"
           SIZE=$(du -sh "$OUT" | cut -f1)
           echo "✅ Signed APK: $OUT_NAME ($SIZE)"
           echo "apk_path=$OUT"      >> $GITHUB_OUTPUT
