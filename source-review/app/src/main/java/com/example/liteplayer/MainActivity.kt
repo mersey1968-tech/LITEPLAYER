@@ -1121,12 +1121,30 @@ class MainActivity : ComponentActivity() {
             .setCancelable(false).create()
         progress.show()
         Thread {
-            val outcome = runCatching {
-                val access = SmbAccess("", "")
-                // Check access before showing the browser so a rejected anonymous
-                // session can fall back to authenticated credentials.
-                access.entries(folder)
-                access
+            // Try the standard anonymous SMB session and the empty NTLM session
+            // separately. These are distinct forms of authentication in jcifs.
+            val attempts = listOf("anonymous", "empty-ntlm")
+            var success: SmbAccess? = null
+            var listing: List<Pair<String, Boolean>>? = null
+            val problems = mutableListOf<String>()
+            for (mode in attempts) {
+                val result = runCatching {
+                    val access = SmbAccess("", "", authMode = mode)
+                    val entries = access.entries(folder)
+                    access to entries
+                }
+                result.onSuccess { pair ->
+                    success = pair.first
+                    listing = pair.second
+                }.onFailure { ex ->
+                    val reason = generateSequence(ex as Throwable?) { it.cause }
+                        .take(4)
+                        .joinToString(" → ") { cause ->
+                            "${cause.javaClass.simpleName}: ${cause.message.orEmpty()}"
+                        }
+                    problems.add("${mode}: ${reason.take(550)}")
+                }
+                if (success != null) break
             }
             runOnUiThread {
                 if (isFinishing || isDestroyed) {
@@ -1134,13 +1152,19 @@ class MainActivity : ComponentActivity() {
                     return@runOnUiThread
                 }
                 progress.dismiss()
-                outcome.onSuccess { access ->
+                val access = success
+                if (access != null) {
                     smbAccess = access
                     browseSmb(folder)
-                }.onFailure {
-                    // Existing Windows setups can reject anonymous enumeration.
-                    // Ask for credentials only when one-click access cannot work.
-                    connectSmb(host)
+                } else {
+                    AlertDialog.Builder(this)
+                        .setTitle("Cannot list shared folders")
+                        .setMessage("The computer was found, but SMB share enumeration failed.\n\n" +
+                            problems.joinToString("\n\n").take(1100))
+                        .setPositiveButton("Use Windows login") { _, _ -> connectSmb(host) }
+                        .setNeutralButton("Scan again") { _, _ -> scanForSmb() }
+                        .setNegativeButton("Cancel", null)
+                        .show()
                 }
             }
         }.start()
