@@ -74,6 +74,7 @@ internal class IecAudioOutput(
 		audioTrack.flush()
 		writtenBytes = 0
 		lastTimestampFrames = -1
+		lastTimestampNanos = 0
 		positionAdvancing = false
 		positionSmoother.reset()
 		if (playing) audioTrack.play()
@@ -94,15 +95,31 @@ internal class IecAudioOutput(
 
 	override fun getPositionUs(): Long {
 		val writtenFrames = writtenBytes / IecPacker.CARRIER_FRAME_BYTES
-		var frames = audioTrack.playbackHeadPosition.toUInt().toLong()
-		if (playing && readTimestamp()) {
-			if (timestamp.framePosition != lastTimestampFrames) {
-				lastTimestampFrames = timestamp.framePosition
-				lastTimestampNanos = timestamp.nanoTime
+		val nowNanos = System.nanoTime()
+		val headFrames = audioTrack.playbackHeadPosition.toUInt().toLong()
+		var frames = headFrames
+		// Reject an outdated / discontinuous AudioTrack timestamp instead of letting
+		// one bad timestamp drive video timing until the next manual seek.
+		if (playing && readTimestamp(nowNanos)) {
+			val reportedFrames = timestamp.framePosition
+			val reportedNanos = timestamp.nanoTime
+			val extrapolatedFrames = reportedFrames +
+				(nowNanos - reportedNanos) * IecPacker.CARRIER_SAMPLE_RATE / NANOS_PER_SECOND
+			val differenceFrames = kotlin.math.abs(extrapolatedFrames - headFrames)
+			val maxDifferenceFrames = IecPacker.CARRIER_SAMPLE_RATE / 10 // 100 ms
+			if (extrapolatedFrames >= 0 && differenceFrames <= maxDifferenceFrames &&
+				(lastTimestampFrames < 0 || reportedFrames >= lastTimestampFrames ||
+					reportedNanos > lastTimestampNanos + NANOS_PER_SECOND)) {
+				frames = extrapolatedFrames
+				lastTimestampFrames = reportedFrames
+				lastTimestampNanos = reportedNanos
+			} else {
+				lastTimestampFrames = -1L
+				positionSmoother.reset()
 			}
-			frames = lastTimestampFrames + (System.nanoTime() - lastTimestampNanos) * IecPacker.CARRIER_SAMPLE_RATE / NANOS_PER_SECOND
 		}
-		val rawPositionUs = minOf(frames, writtenFrames) * MICROS_PER_SECOND / IecPacker.CARRIER_SAMPLE_RATE
+		val rawPositionUs = minOf(frames, writtenFrames).coerceAtLeast(0L) *
+			MICROS_PER_SECOND / IecPacker.CARRIER_SAMPLE_RATE
 
 		if (!positionAdvancing && rawPositionUs > 0) {
 			positionAdvancing = true
@@ -111,14 +128,21 @@ internal class IecAudioOutput(
 		}
 
 		val underruns = audioTrack.underrunCount
-		if (underruns > underrunCount) listeners.forEach { it.onUnderrun() }
+		if (underruns > underrunCount) {
+			positionSmoother.reset()
+			listeners.forEach { it.onUnderrun() }
+		}
 		underrunCount = underruns
 
 		return if (playing) positionSmoother.smooth(rawPositionUs, System.nanoTime()) else rawPositionUs
 	}
 
 	// A reused track can still report the previous output's timestamp, so only use newer ones
-	private fun readTimestamp() = audioTrack.getTimestamp(timestamp) && timestamp.framePosition > 0 && timestamp.nanoTime > createdNanos
+	private fun readTimestamp(nowNanos: Long) = audioTrack.getTimestamp(timestamp) &&
+		timestamp.framePosition > 0 &&
+		timestamp.nanoTime > createdNanos &&
+		timestamp.nanoTime <= nowNanos &&
+		nowNanos - timestamp.nanoTime <= NANOS_PER_SECOND / 2
 
 	// Bitstream output cannot change volume or speed
 	override fun setVolume(volume: Float) = Unit
