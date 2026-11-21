@@ -1155,26 +1155,39 @@ class MainActivity : ComponentActivity() {
                     val user = username.text.toString().trim()
                     // Save only the server/share path and username, never the password.
                     prefs.edit().putString("share", folder).putString("user", user).apply()
-                    val connected = runCatching { SmbAccess(user, password.text.toString()) }
-                    connected.onSuccess {
-                        smbAccess = it
-                        browseSmb(folder)
-                    }.onFailure { error ->
-                        // Preserve the actual Java/Android exception and root cause.
-                        // "Unable to initialize SMB access" hides important class-loading
-                        // and configuration failures unrelated to Windows credentials.
-                        val details = generateSequence(error as Throwable?) { it.cause }
-                            .take(5)
-                            .joinToString("\nCaused by: ") { cause ->
-                                "${cause.javaClass.name}: ${cause.message ?: "(no message)"}"
+                    // jcifs-ng initializes network-dependent configuration during
+                    // construction. Never initialize it on the Android UI thread.
+                    val suppliedPassword = password.text.toString()
+                    val pending = AlertDialog.Builder(this)
+                        .setMessage("Connecting to network computer…")
+                        .setCancelable(false).create()
+                    pending.show()
+                    Thread {
+                        val connected = runCatching { SmbAccess(user, suppliedPassword) }
+                        runOnUiThread {
+                            if (isFinishing || isDestroyed) {
+                                pending.dismiss()
+                                return@runOnUiThread
                             }
-                        AlertDialog.Builder(this)
-                            .setTitle("SMB client initialization failed")
-                            .setMessage("This happened before any SMB login was attempted.\n\n" +
-                                details + "\n\nPlease report this exact error.")
-                            .setPositiveButton("Try again") { _, _ -> connectSmb(prefillHost) }
-                            .setNegativeButton("Cancel", null).show()
-                    }
+                            pending.dismiss()
+                            connected.onSuccess {
+                                smbAccess = it
+                                browseSmb(folder)
+                            }.onFailure { error ->
+                                val details = generateSequence(error as Throwable?) { it.cause }
+                                    .take(5)
+                                    .joinToString("\nCaused by: ") { cause ->
+                                        "${cause.javaClass.name}: ${cause.message ?: "(no message)"}"
+                                    }
+                                AlertDialog.Builder(this)
+                                    .setTitle("SMB client initialization failed")
+                                    .setMessage("Could not initialize the SMB client.\n\n" +
+                                        details)
+                                    .setPositiveButton("Change login") { _, _ -> connectSmb(prefillHost) }
+                                    .setNegativeButton("Cancel", null).show()
+                            }
+                        }
+                    }.start()
                 }
             }.setNegativeButton("Cancel", null).show()
     }
