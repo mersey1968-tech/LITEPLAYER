@@ -76,6 +76,9 @@ class MainActivity : ComponentActivity() {
     private lateinit var seekIndicator: View
     private lateinit var homePanel: View
     private var smbAccess: SmbAccess? = null
+    // Some TV remotes deliver the end of a dialog's OK press to the home-screen button.
+    // Prevent it from opening Android's file picker after an SMB Connect action.
+    private var suppressLocalPickerUntil = 0L
     private lateinit var seekTimeLabel: TextView
     private lateinit var seekProgressBar: ProgressBar
     private val hideSeekIndicator = Runnable { seekIndicator.visibility = View.GONE }
@@ -291,7 +294,9 @@ class MainActivity : ComponentActivity() {
         seekProgressBar = findViewById(R.id.seekProgressBar)
         homePanel = findViewById(R.id.homePanel)
         findViewById<Button>(R.id.browseFilesButton).setOnClickListener {
-            picker.launch(arrayOf("video/*", "audio/*"))
+            if (SystemClock.uptimeMillis() >= suppressLocalPickerUntil) {
+                picker.launch(arrayOf("video/*", "audio/*"))
+            }
         }
         findViewById<Button>(R.id.networkFilesButton).setOnClickListener { connectSmb() }
         findViewById<Button>(R.id.openUrlButton).setOnClickListener { promptForUrl() }
@@ -884,6 +889,8 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        // Home is a normal TV menu, not a playback surface.
+        if (homePanel.visibility == View.VISIBLE) return super.onKeyDown(keyCode, event)
         // With the overlay hidden, LEFT/RIGHT seek without showing controls.
         // When controls are open, retain standard D-pad navigation and focus.
         if (controlPanel.visibility != View.VISIBLE) {
@@ -937,7 +944,7 @@ class MainActivity : ComponentActivity() {
         revealControls.visibility = View.GONE
         openButton.visibility = View.GONE
         homePanel.visibility = View.VISIBLE
-        findViewById<Button>(R.id.browseFilesButton).requestFocus()
+        findViewById<Button>(R.id.networkFilesButton).requestFocus()
     }
 
     private fun openStandalone(next: Uri) {
@@ -1032,6 +1039,7 @@ class MainActivity : ComponentActivity() {
             .setTitle("Connect to SMB / NAS")
             .setView(fields)
             .setPositiveButton("Connect") { _, _ ->
+                suppressLocalPickerUntil = SystemClock.uptimeMillis() + 2500L
                 val folder = server.text.toString().trim().replace('\\', '/')
                     .let { if (it.endsWith("/")) it else "${it}/" }
                 val parsed = Uri.parse(folder)
