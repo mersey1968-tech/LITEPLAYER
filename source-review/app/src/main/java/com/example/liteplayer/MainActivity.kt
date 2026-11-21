@@ -1028,7 +1028,7 @@ class MainActivity : ComponentActivity() {
             .setView(fields)
             .setPositiveButton("Connect") { _, _ ->
                 val folder = server.text.toString().trim().replace('\\', '/')
-                    .let { if (it.endsWith("/")) it else "$" + "{it}/" }
+                    .let { if (it.endsWith("/")) it else "${it}/" }
                 val parsed = Uri.parse(folder)
                 if (parsed.scheme != "smb" || parsed.host.isNullOrBlank() ||
                     parsed.pathSegments.isEmpty() || parsed.userInfo != null) {
