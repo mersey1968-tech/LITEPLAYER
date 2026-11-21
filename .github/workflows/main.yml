@@ -19,7 +19,7 @@ jobs:
       - name: Overlay native SMB streaming source
         run: cp source-review/app/src/main/java/com/example/liteplayer/SmbAccess.kt proj/app/src/main/java/com/example/liteplayer/SmbAccess.kt
       - name: Add SMB client library to build
-        run: sed -i '/^dependencies {/a\\    implementation("eu.agno3.jcifs:jcifs-ng:2.1.10")' proj/app/build.gradle.kts
+        run: sed -i '/^dependencies {/a\    implementation("eu.agno3.jcifs:jcifs-ng:2.1.10")' proj/app/build.gradle.kts
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
