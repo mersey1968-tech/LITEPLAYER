@@ -1028,6 +1028,10 @@ jobs:
             grep -Fq "$PKG.$SUFFIX" "$MANIFEST" || exit 1
           done
           echo "Manifest fixed after make apk; forcing Gradle rebuild"
+          export KODI_ANDROID_KEY_ALIAS=androiddebugkey
+          export KODI_ANDROID_KEY_PASSWORD=android
+          export KODI_ANDROID_STORE_FILE="$HOME/.android/debug.keystore"
+          export KODI_ANDROID_STORE_PASSWORD=android
           (cd "$PACKAGING_DIR" && ANDROID_HOME="$ANDROID_SDK_ROOT" ./gradlew --no-daemon --rerun-tasks assembleRelease) 2>&1 | tee -a ~/apk-package.log
 
           # --- PHASE 3: Force-inject into packaging assets and RE-RUN gradle ---
