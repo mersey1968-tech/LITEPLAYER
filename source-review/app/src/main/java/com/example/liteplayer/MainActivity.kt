@@ -1165,13 +1165,13 @@ class MainActivity : ComponentActivity() {
                         // and configuration failures unrelated to Windows credentials.
                         val details = generateSequence(error as Throwable?) { it.cause }
                             .take(5)
-                            .joinToString("\\nCaused by: ") { cause ->
+                            .joinToString("\nCaused by: ") { cause ->
                                 "${cause.javaClass.name}: ${cause.message ?: "(no message)"}"
                             }
                         AlertDialog.Builder(this)
                             .setTitle("SMB client initialization failed")
-                            .setMessage("This happened before any SMB login was attempted.\\n\\n" +
-                                details + "\\n\\nPlease report this exact error.")
+                            .setMessage("This happened before any SMB login was attempted.\n\n" +
+                                details + "\n\nPlease report this exact error.")
                             .setPositiveButton("Try again") { _, _ -> connectSmb(prefillHost) }
                             .setNegativeButton("Cancel", null).show()
                     }
