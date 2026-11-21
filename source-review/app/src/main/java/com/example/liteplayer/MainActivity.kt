@@ -1140,10 +1140,10 @@ class MainActivity : ComponentActivity() {
             .setCancelable(false).create()
         progress.show()
         Thread {
-            // Windows showed RYZEN\\GUEST sessions from successful browsing.
-            // Guest and anonymous are different NTLM session types.
-            // Try guest first and close failed contexts immediately.
-            val attempts = listOf("guest", "anonymous")
+            // Do not initiate a Guest login when the server's Guest account
+            // is disabled. Try one anonymous discovery request only.
+            // Close its transport pool if the server rejects enumeration.
+            val attempts = listOf("anonymous")
             var success: SmbAccess? = null
             var listing: List<Pair<String, Boolean>>? = null
             val problems = mutableListOf<String>()
