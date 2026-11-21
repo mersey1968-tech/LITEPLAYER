@@ -1265,17 +1265,21 @@ jobs:
           python3 - /tmp/kodi-manifest-tree.txt <<'PY'
           import pathlib, re, sys
           data = pathlib.Path(sys.argv[1]).read_text()
-          splash = re.search(r'E: activity\\b[^\\n]*\\n(?:(?!E: activity\\b).)*?android:name[^\\n]*Splash(?:(?!E: activity\\b).)*', data, re.S)
-          if not splash: raise SystemExit('Final APK missing Splash activity')
-          section = splash.group(0)
+          # aapt xmltree is indented; find the activity containing Splash by its
+          # android:name attribute, then check filters before the next activity.
+          activities = re.split(r'(?m)^\\s{4}E: activity \\(line=', data)
+          section = next((x for x in activities if re.search(r'android:name[^\\n]*[.\\"]Splash\\b', x)), None)
+          if section is None:
+              # Dump activity names to make future failures actionable.
+              print('Activity names:', re.findall(r'android:name[^\\n]*', data)[:30])
+              raise SystemExit('Final APK missing Splash activity')
           for action in ('android.intent.action.VIEW', 'android.intent.action.SEND'):
               if action not in section: raise SystemExit('Final APK missing external intent ' + action)
           for scheme in ('http','https','content','file','rtsp'):
               if not re.search(r'android:scheme[^\\n]*"' + scheme + r'"', section):
                   raise SystemExit('Final APK missing scheme ' + scheme)
           print('Verified external-player intent filters in final APK')
-          PY
-          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose "$OUT"
+          PY         "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose "$OUT"
           SIZE=$(du -sh "$OUT" | cut -f1)
           echo "✅ Signed APK: $OUT_NAME ($SIZE)"
           echo "apk_path=$OUT"      >> $GITHUB_OUTPUT
