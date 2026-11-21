@@ -1,0 +1,7 @@
+IEC61937 experimental audio source attribution
+
+IecPacker.kt is derived from FFmpeg libavformat/spdifenc.c, LGPL-2.1-or-later.
+Copyright (c) 2009 Bartlomiej Wolowiec; (c) 2010, 2020 Anssi Hannula; (c) 2010 Carl Eugen Hoyos.
+The audio provider/output adaptation is from the fire-tv-jellyfin-dv-iec project, whose patch is based on Jellyfin Android TV.
+See https://github.com/backcountrymountains/fire-tv-jellyfin-dv-iec and LICENSE in that repository.
+Experimental source only: compilation and hardware operation have not been verified.
