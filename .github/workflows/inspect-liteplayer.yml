@@ -1,0 +1,46 @@
+name: Inspect LitePlayer source safely
+on:
+  push:
+    branches: [liteplayer-safe-optimization]
+    paths: ['.github/workflows/inspect-liteplayer.yml']
+permissions:
+  contents: write
+jobs:
+  unpack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - name: Extract reviewable text source into isolated branch
+        run: |
+          python3 - <<'PY'
+          import pathlib, zipfile
+          target = pathlib.Path('source-review')
+          allowed = {'.kt','.java','.kts','.gradle','.xml','.properties','.md','.txt','.json','.pro'}
+          with zipfile.ZipFile('LitePlayer.zip') as z:
+              for entry in z.infolist():
+                  path = pathlib.PurePosixPath(entry.filename)
+                  if entry.is_dir() or path.is_absolute() or '..' in path.parts or any(x.startswith('.') for x in path.parts):
+                      continue
+                  if path.suffix.lower() not in allowed or entry.file_size > 300_000:
+                      continue
+                  if any(x in path.parts for x in ('build','.gradle','.idea')):
+                      continue
+                  data = z.read(entry)
+                  try: data.decode('utf-8')
+                  except UnicodeDecodeError: continue
+                  dest = target.joinpath(*path.parts)
+                  dest.parent.mkdir(parents=True, exist_ok=True)
+                  dest.write_bytes(data)
+                  print(dest)
+          PY
+      - name: Commit inspection copy only
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add source-review
+          if ! git diff --staged --quiet; then
+            git commit -m "Extract LitePlayer text sources for isolated optimization review"
+            git push
+          fi
