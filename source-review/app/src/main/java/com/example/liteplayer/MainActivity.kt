@@ -1154,8 +1154,17 @@ class MainActivity : ComponentActivity() {
                     val user = username.text.toString().trim()
                     // Save only the server/share path and username, never the password.
                     prefs.edit().putString("share", folder).putString("user", user).apply()
-                    smbAccess = SmbAccess(user, password.text.toString())
-                    browseSmb(folder)
+                    val connected = runCatching { SmbAccess(user, password.text.toString()) }
+                    connected.onSuccess {
+                        smbAccess = it
+                        browseSmb(folder)
+                    }.onFailure { error ->
+                        AlertDialog.Builder(this)
+                            .setTitle("SMB connection setup failed")
+                            .setMessage(error.message ?: "Unable to initialize SMB access.")
+                            .setPositiveButton("Try again") { _, _ -> connectSmb(prefillHost) }
+                            .setNegativeButton("Cancel", null).show()
+                    }
                 }
             }.setNegativeButton("Cancel", null).show()
     }
