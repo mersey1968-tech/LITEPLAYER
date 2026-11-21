@@ -333,8 +333,7 @@ class MainActivity : ComponentActivity() {
             clearProgress()
         } else if (p.currentPosition > 0L) {
             getSharedPreferences("playback_progress", MODE_PRIVATE).edit()
-                // Asynchronous persistence avoids blocking the UI/playback thread every five seconds.
-                .putLong(progressKey(u), p.currentPosition).apply()
+                .putLong(progressKey(u), p.currentPosition).commit()
         }
     }
 
