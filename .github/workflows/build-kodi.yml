@@ -1267,16 +1267,16 @@ jobs:
           data = pathlib.Path(sys.argv[1]).read_text()
           # aapt xmltree is indented; find the activity containing Splash by its
           # android:name attribute, then check filters before the next activity.
-          activities = re.split(r'(?m)^\\s{4}E: activity \\(line=', data)
-          section = next((x for x in activities if re.search(r'android:name[^\\n]*[.\\"]Splash\\b', x)), None)
+          activities = re.split(r'(?m)^\s{4}E: activity \(line=', data)
+          section = next((x for x in activities if re.search(r'android:name[^\n]*[.\"]Splash\b', x)), None)
           if section is None:
               # Dump activity names to make future failures actionable.
-              print('Activity names:', re.findall(r'android:name[^\\n]*', data)[:30])
+              print('Activity names:', re.findall(r'android:name[^\n]*', data)[:30])
               raise SystemExit('Final APK missing Splash activity')
           for action in ('android.intent.action.VIEW', 'android.intent.action.SEND'):
               if action not in section: raise SystemExit('Final APK missing external intent ' + action)
           for scheme in ('http','https','content','file','rtsp'):
-              if not re.search(r'android:scheme[^\\n]*"' + scheme + r'"', section):
+              if not re.search(r'android:scheme[^\n]*"' + scheme + r'"', section):
                   raise SystemExit('Final APK missing scheme ' + scheme)
           print('Verified external-player intent filters in final APK')
           PY
