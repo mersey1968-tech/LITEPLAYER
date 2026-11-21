@@ -17,8 +17,23 @@ import java.io.IOException
  * are never placed in a URI, intent, log, or preference file.
  */
 class SmbAccess(username: String, password: String, domain: String = "") {
+    // jcifs-ng uses distinct authentication types. An ordinary authenticator with
+    // empty strings is not the same as an anonymous/null SMB session.
+    private val credentials: NtlmPasswordAuthenticator = when {
+        username.isBlank() && password.isBlank() ->
+            NtlmPasswordAuthenticator(NtlmPasswordAuthenticator.AuthenticationType.NULL)
+        username.equals("guest", ignoreCase = true) && password.isBlank() ->
+            NtlmPasswordAuthenticator(NtlmPasswordAuthenticator.AuthenticationType.GUEST)
+        else -> {
+            val separator = username.indexOf('\\')
+            if (separator > 0) {
+                NtlmPasswordAuthenticator(username.substring(0, separator),
+                    username.substring(separator + 1), password)
+            } else NtlmPasswordAuthenticator(domain, username, password)
+        }
+    }
     private val context: CIFSContext = SingletonContext.getInstance()
-        .withCredentials(NtlmPasswordAuthenticator(domain, username, password))
+        .withCredentials(credentials)
 
     fun entries(folder: String): List<Pair<String, Boolean>> {
         SmbFile(folder, context).use { directory ->
