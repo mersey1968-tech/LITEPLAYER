@@ -806,6 +806,37 @@ jobs:
           echo "✅ Signing keystores created:"
           ls -la ~/.android
 
+      - name: Set and verify unique Android application ID before packaging
+        run: |
+          set -euo pipefail
+          PKG="${{ github.event.inputs.package_id || 'com.kodi.liteplayer' }}"
+          GRADLE="$HOME/kodi-build/tools/android/packaging/xbmc/build.gradle"
+          TEMPLATE="$HOME/kodi/tools/android/packaging/xbmc/build.gradle.in"
+          echo "Requested Android application ID: $PKG"
+          # Kodi generates Gradle build.gradle from build.gradle.in during CMake.
+          # The Android applicationId, not the APK filename or display label,
+          # determines whether Android treats this as an update.
+          python3 - "$GRADLE" "$TEMPLATE" "$PKG" <<'PY'
+          import pathlib, re, sys
+          generated, template, pkg = map(str, sys.argv[1:])
+          assert re.fullmatch(r'[A-Za-z_][A-Za-z_0-9]*(?:\.[A-Za-z_][A-Za-z_0-9]*)+', pkg)
+          for filename in (generated, template):
+              p = pathlib.Path(filename)
+              if not p.is_file():
+                  if filename == generated:
+                      raise SystemExit(f'Generated Gradle file missing: {p}')
+                  continue
+              s = p.read_text()
+              if filename == generated:
+                  s, count = re.subn(r'applicationId\s+"[^"]+"', f'applicationId "{pkg}"', s)
+                  if count != 1:
+                      raise SystemExit(f'Expected one Gradle applicationId in {p}; found {count}')
+              else:
+                  s = s.replace('applicationId "@APP_PACKAGE@"', f'applicationId "{pkg}"')
+              p.write_text(s)
+          print(next(x.strip() for x in pathlib.Path(generated).read_text().splitlines() if 'applicationId ' in x))
+          PY
+
       - name: Build Kodi
         run: |
           set -euo pipefail
@@ -1057,6 +1088,14 @@ jobs:
             --out "$OUT" \
             "$ALIGNED"
 
+          EXPECTED_PKG="${{ github.event.inputs.package_id || 'com.kodi.liteplayer' }}"
+          ACTUAL_PKG=$("$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging "$OUT" | sed -n "s/^package: name='\\([^']*\\)'.*/\\1/p" | head -1)
+          echo "APK package verification: expected=$EXPECTED_PKG actual=$ACTUAL_PKG"
+          if [ "$ACTUAL_PKG" != "$EXPECTED_PKG" ]; then
+            echo "::error::APK has wrong Android application ID; refusing to upload."
+            exit 1
+          fi
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose "$OUT"
           SIZE=$(du -sh "$OUT" | cut -f1)
           echo "✅ Signed APK: $OUT_NAME ($SIZE)"
           echo "apk_path=$OUT"      >> $GITHUB_OUTPUT
