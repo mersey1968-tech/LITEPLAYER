@@ -93,6 +93,20 @@ class SmbAccess(username: String, password: String, domain: String = "", authMod
         }
     }
 
+    /** Verify the selected video can actually be opened and read on SMB before
+     * switching away from the folder browser. Run on a worker thread.
+     */
+    fun probeVideo(path: String): Long {
+        SmbFile(path, context).openRandomAccess("r").use { handle ->
+            val length = handle.length()
+            if (length <= 0L) throw IOException("Network video is empty")
+            val header = ByteArray(8)
+            val count = handle.read(header, 0, header.size)
+            if (count <= 0) throw IOException("Cannot read the video from SMB")
+            return length
+        }
+    }
+
     fun factory(): DataSource.Factory = DataSource.Factory { SmbDataSource(context) }
 
     private class SmbDataSource(private val context: CIFSContext) : BaseDataSource(true) {
