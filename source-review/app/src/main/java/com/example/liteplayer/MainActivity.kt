@@ -30,6 +30,14 @@ import android.widget.LinearLayout
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import java.net.Inet4Address
+import java.net.InetSocketAddress
+import java.net.NetworkInterface
+import java.net.Socket
+import java.util.concurrent.Callable
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.security.MessageDigest
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
@@ -298,7 +306,7 @@ class MainActivity : ComponentActivity() {
                 picker.launch(arrayOf("video/*", "audio/*"))
             }
         }
-        findViewById<Button>(R.id.networkFilesButton).setOnClickListener { connectSmb() }
+        findViewById<Button>(R.id.networkFilesButton).setOnClickListener { scanForSmb() }
         findViewById<Button>(R.id.openUrlButton).setOnClickListener { promptForUrl() }
         findViewById<Button>(R.id.recentVideosButton).setOnClickListener { showRecents() }
         // Always reachable from the manually revealed transport panel.
@@ -1010,7 +1018,101 @@ class MainActivity : ComponentActivity() {
             }.setNegativeButton("Cancel", null).show()
     }
 
-    private fun connectSmb() {
+    // Discover SMB hosts on the same local IPv4 subnet, without requiring
+    // server addresses, SMB prefixes or a third-party file manager.
+    // TCP 445 discovery is used because Android TV has no general SMB discovery API.
+    private fun scanForSmb() {
+        suppressLocalPickerUntil = SystemClock.uptimeMillis() + 4000L
+        val cancelled = AtomicBoolean(false)
+        val progress = AlertDialog.Builder(this)
+            .setTitle("Find network computers")
+            .setMessage("Scanning your local network for SMB shares…")
+            .setNegativeButton("Cancel") { _, _ -> cancelled.set(true) }
+            .create()
+        progress.setOnCancelListener { cancelled.set(true) }
+        progress.show()
+        Thread {
+            val result = runCatching {
+                val prefixes = linkedSetOf<String>()
+                val interfaces = NetworkInterface.getNetworkInterfaces()
+                while (interfaces.hasMoreElements()) {
+                    val nic = interfaces.nextElement()
+                    if (!nic.isUp || nic.isLoopback || nic.isVirtual ||
+                        nic.name.startsWith("tun") || nic.name.startsWith("tap")) continue
+                    val addresses = nic.inetAddresses
+                    while (addresses.hasMoreElements()) {
+                        val address = addresses.nextElement()
+                        if (address is Inet4Address && address.isSiteLocalAddress) {
+                            val parts = address.hostAddress?.split('.') ?: continue
+                            if (parts.size == 4) {
+                                prefixes.add(parts.take(3).joinToString("."))
+                            }
+                        }
+                    }
+                }
+                if (prefixes.isEmpty()) throw IllegalStateException(
+                    "No local IPv4 network found. Check Shield Ethernet or Wi-Fi."
+                )
+                val candidates = prefixes.take(2).flatMap { prefix ->
+                    (1..254).map { host -> prefix + "." + host }
+                }
+                val pool = Executors.newFixedThreadPool(28)
+                try {
+                    val tasks = candidates.map { ip -> Callable {
+                        if (cancelled.get()) null
+                        else try {
+                            Socket().use { socket ->
+                                socket.connect(InetSocketAddress(ip, 445), 260)
+                                ip
+                            }
+                        } catch (_: Exception) { null }
+                    } }
+                    val futures = pool.invokeAll(tasks, 13L, TimeUnit.SECONDS)
+                    futures.mapNotNull { future ->
+                        if (future.isCancelled) null
+                        else runCatching { future.get() }.getOrNull()
+                    }.sortedWith(compareBy { ip ->
+                        ip.split('.').map { it.toIntOrNull() ?: 0 }
+                            .fold(0L) { acc, octet -> acc * 256 + octet }
+                    })
+                } finally {
+                    pool.shutdownNow()
+                }
+            }
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                progress.dismiss()
+                if (cancelled.get()) return@runOnUiThread
+                result.onFailure { problem ->
+                    AlertDialog.Builder(this)
+                        .setTitle("Network scan unavailable")
+                        .setMessage(problem.message ?: "Unable to scan this network.")
+                        .setPositiveButton("Enter address") { _, _ -> connectSmb() }
+                        .setNegativeButton("Cancel", null).show()
+                }.onSuccess { hosts ->
+                    if (hosts.isEmpty()) {
+                        AlertDialog.Builder(this)
+                            .setTitle("No SMB computers found")
+                            .setMessage("No device responded on SMB port 445 on this local network. You can still enter a computer name or IP address.")
+                            .setPositiveButton("Enter address") { _, _ -> connectSmb() }
+                            .setNeutralButton("Scan again") { _, _ -> scanForSmb() }
+                            .setNegativeButton("Cancel", null).show()
+                    } else {
+                        AlertDialog.Builder(this)
+                            .setTitle("Choose your computer or NAS")
+                            .setItems(hosts.toTypedArray()) { _, selection ->
+                                connectSmb(hosts[selection])
+                            }
+                            .setPositiveButton("Enter address") { _, _ -> connectSmb() }
+                            .setNeutralButton("Scan again") { _, _ -> scanForSmb() }
+                            .setNegativeButton("Cancel", null).show()
+                    }
+                }
+            }
+        }.start()
+    }
+
+    private fun connectSmb(prefillHost: String = "") {
         val prefs = getSharedPreferences("smb_connection", MODE_PRIVATE)
         val fields = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -1019,7 +1121,7 @@ class MainActivity : ComponentActivity() {
         val server = EditText(this).apply {
             hint = "Computer name or IP address"
             setSingleLine(true)
-            setText(prefs.getString("share", ""))
+            setText(if (prefillHost.isNotBlank()) prefillHost else prefs.getString("share", ""))
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
         }
         val username = EditText(this).apply {
