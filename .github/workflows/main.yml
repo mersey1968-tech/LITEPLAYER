@@ -20,6 +20,21 @@ jobs:
         run: cp source-review/app/src/main/java/com/example/liteplayer/SmbAccess.kt proj/app/src/main/java/com/example/liteplayer/SmbAccess.kt
       - name: Add SMB client library to build
         run: sed -i '/^dependencies {/a\    implementation("eu.agno3.jcifs:jcifs-ng:2.1.10")' proj/app/build.gradle.kts
+      - name: Configure isolated release-candidate identity and test signing
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("proj/app/build.gradle.kts")
+          t = p.read_text()
+          assert 'applicationId = "com.example.liteplayer"' in t
+          assert 'isMinifyEnabled = true' in t and 'isShrinkResources = true' in t
+          t = t.replace('applicationId = "com.example.liteplayer"', 'applicationId = "com.example.liteplayer.rc"')
+          t = t.replace('isMinifyEnabled = true', 'isMinifyEnabled = true\n            signingConfig = signingConfigs.getByName("debug")', 1)
+          p.write_text(t)
+          m = Path("proj/app/src/main/AndroidManifest.xml")
+          mt = m.read_text().replace('android:label="LitePlayer"', 'android:label="LitePlayer RC"')
+          m.write_text(mt)
+          PY
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -27,9 +42,18 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
-      - run: gradle assembleDebug
+      - name: Build R8-optimized release candidate
+        run: gradle assembleRelease
         working-directory: proj
+      - name: Verify APK signature, ZIP alignment, and file sizes
+        run: |
+          APK=proj/app/build/outputs/apk/release/app-release.apk
+          SDK_BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -maxdepth 1 -mindepth 1 -type d | sort -V | tail -n 1)"
+          "$SDK_BUILD_TOOLS/apksigner" verify --verbose --print-certs "$APK"
+          "$SDK_BUILD_TOOLS/zipalign" -c -P 16 -v 4 "$APK"
+          ls -lh "$APK"
+          echo "Release-candidate signed with temporary Android debug key; NOT a distributable production signing identity."
       - uses: actions/upload-artifact@v4
         with:
-          name: LitePlayer-apk
-          path: proj/app/build/outputs/apk/debug/app-debug.apk
+          name: LitePlayer-optimized-RC-not-public
+          path: proj/app/build/outputs/apk/release/app-release.apk
