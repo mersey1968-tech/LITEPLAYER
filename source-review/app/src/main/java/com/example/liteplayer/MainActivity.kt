@@ -336,9 +336,12 @@ class MainActivity : ComponentActivity() {
         super.onPause()
     }
     override fun onStop() {
-        saveProgress()
         progressHandler.removeCallbacks(progressSaver)
-        releasePlayer()
+        playerView.removeCallbacks(hideControls)
+        seekIndicator.removeCallbacks(hideSeekIndicator)
+        infoText.removeCallbacks(hideInfo)
+        seekIndicator.visibility = View.GONE
+        releasePlayer() // Saves progress before releasing, avoiding a duplicate write.
         super.onStop()
     }
 
@@ -923,7 +926,7 @@ class MainActivity : ComponentActivity() {
         AlertDialog.Builder(this)
             .setTitle("Subtitle size")
             .setSingleChoiceItems(subtitleNames, selectedSubtitleIndex()) { d, which ->
-                prefs.edit().putInt("subSizeV2", which).commit()
+                prefs.edit().putInt("subSizeV2", which).apply()
                 restoreSubtitleStyleAfterRefresh()
                 d.dismiss()
             }
