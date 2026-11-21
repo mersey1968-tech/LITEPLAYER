@@ -36,6 +36,8 @@ jobs:
             git push
           fi
       - run: unzip LitePlayer.zip -d proj
+      - name: Overlay reviewed optimization into build copy
+        run: cp source-review/app/src/main/java/com/example/liteplayer/MainActivity.kt proj/app/src/main/java/com/example/liteplayer/MainActivity.kt
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
