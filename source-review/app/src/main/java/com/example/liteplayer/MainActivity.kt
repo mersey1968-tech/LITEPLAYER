@@ -1101,12 +1101,46 @@ class MainActivity : ComponentActivity() {
                         AlertDialog.Builder(this)
                             .setTitle("Choose your computer or NAS")
                             .setItems(hosts.toTypedArray()) { _, selection ->
-                                connectSmb(hosts[selection])
+                                openDiscoveredSmb(hosts[selection])
                             }
                             .setPositiveButton("Enter address") { _, _ -> connectSmb() }
                             .setNeutralButton("Scan again") { _, _ -> scanForSmb() }
                             .setNegativeButton("Cancel", null).show()
                     }
+                }
+            }
+        }.start()
+    }
+
+    // First attempt the same one-click flow users expect from a network browser.
+    // No password prompt unless the server explicitly rejects anonymous access.
+    private fun openDiscoveredSmb(host: String) {
+        val folder = "smb://${host}/"
+        val progress = AlertDialog.Builder(this)
+            .setMessage("Opening shared folders…")
+            .setCancelable(false).create()
+        progress.show()
+        Thread {
+            val outcome = runCatching {
+                val access = SmbAccess("", "")
+                // Check access before showing the browser so a rejected anonymous
+                // session can fall back to authenticated credentials.
+                access.entries(folder)
+                access
+            }
+            runOnUiThread {
+                if (isFinishing || isDestroyed) {
+                    progress.dismiss()
+                    return@runOnUiThread
+                }
+                progress.dismiss()
+                outcome.onSuccess { access ->
+                    smbAccess = access
+                    browseSmb(folder)
+                }.onFailure {
+                    // Existing Windows setups can reject anonymous enumeration.
+                    // Ask for credentials only when one-click access cannot work.
+                    connectSmb(host)
                 }
             }
         }.start()
