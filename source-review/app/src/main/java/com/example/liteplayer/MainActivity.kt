@@ -84,6 +84,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var seekIndicator: View
     private lateinit var homePanel: View
     private var smbAccess: SmbAccess? = null
+    private var lastSmbFolder: String? = null
 
     // jcifs holds persistent SMB transports beyond individual SmbFile.close().
     // Close the entire context on a worker thread when it is no longer used.
@@ -291,7 +292,13 @@ class MainActivity : ComponentActivity() {
                 ended = true
                 clearProgress()
                 // When another app (e.g. Plezy) launched us, hand control back when the video finishes.
-                if (launchedExternally) finish() else showHome()
+                if (launchedExternally) {
+            finish()
+        } else {
+            val parent = if (uri?.scheme == "smb") lastSmbFolder else null
+            showHome()
+            if (parent != null && smbAccess != null) browseSmb(parent)
+        }
             }
         }
     }
@@ -1328,12 +1335,21 @@ class MainActivity : ComponentActivity() {
                                 val url = folder + childName + if (isDir) "/" else ""
                                 if (isDir) browseSmb(url)
                                 else {
+                                    lastSmbFolder = folder
                                     releasePlayer()
                                     openStandalone(Uri.parse(url))
                                 }
                             }
                         }
-                        .setNegativeButton("Home", null).show()
+                        .setNegativeButton("Home", null)
+                        .setOnCancelListener {
+                            if (showUp) {
+                                val parent = folder.trimEnd('/').substringBeforeLast('/') + "/"
+                                browseSmb(parent)
+                            } else {
+                                scanForSmb()
+                            }
+                        }.show()
                 }
             }
         }.start()
