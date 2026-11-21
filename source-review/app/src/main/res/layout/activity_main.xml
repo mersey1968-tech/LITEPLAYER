@@ -119,4 +119,37 @@
         android:layout_height="wrap_content"
         android:layout_gravity="center"
         android:text="Open video" />
+
+    <!-- Standalone Android TV entry point. External ACTION_VIEW launches bypass it. -->
+    <LinearLayout
+        android:id="@+id/homePanel"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:background="#FF101114"
+        android:padding="48dp"
+        android:visibility="gone">
+
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="LitePlayer" android:textColor="#FFFFFFFF"
+            android:textSize="34sp" android:textStyle="bold"
+            android:layout_marginBottom="24dp" />
+
+        <Button android:id="@+id/browseFilesButton"
+            android:layout_width="340dp" android:layout_height="wrap_content"
+            android:text="Browse files / USB" />
+        <Button android:id="@+id/networkFilesButton"
+            android:layout_width="340dp" android:layout_height="wrap_content"
+            android:text="Network shares (SMB / NAS)" />
+        <Button android:id="@+id/openUrlButton"
+            android:layout_width="340dp" android:layout_height="wrap_content"
+            android:text="Open network URL" />
+        <Button android:id="@+id/recentVideosButton"
+            android:layout_width="340dp" android:layout_height="wrap_content"
+            android:text="Recent videos" />
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_marginTop="16dp" android:textColor="#FFAAAAAA"
+            android:textSize="14sp" android:text="Designed for Shield TV  •  D-pad navigation" />
+    </LinearLayout>
 </FrameLayout>
