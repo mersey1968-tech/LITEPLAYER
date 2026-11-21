@@ -358,6 +358,7 @@ class MainActivity : ComponentActivity() {
             saveProgress()
             launchedExternally = intent.action == Intent.ACTION_VIEW
             homePanel.visibility = View.GONE
+            concealControls("external playback")
             setIntent(intent)
             uri = nextUri
             activeIdentity = identityFor(nextUri, intent)
@@ -931,6 +932,7 @@ class MainActivity : ComponentActivity() {
     private fun openStandalone(next: Uri) {
         launchedExternally = false
         homePanel.visibility = View.GONE
+        concealControls("standalone playback")
         uri = next
         activeIdentity = identityFor(next, null)
         position = restoredPosition(next)
