@@ -41,6 +41,13 @@ jobs:
           PY
       - name: Add opt-in GPU renderer in isolated test copy
         run: python3 research/referencescaler/patch_gpu.py
+      - name: Install FSRCNNX trained neural inference and shader
+        run: |
+          mkdir -p proj/app/src/main/assets/reflite
+          cp research/fsrcnnx/FSRCNNX_x2_8-0-4-1.glsl proj/app/src/main/assets/reflite/
+          cp research/fsrcnnx/FsrcnnxPipeline.kt proj/app/src/main/java/com/example/liteplayer/
+          test -s proj/app/src/main/assets/reflite/FSRCNNX_x2_8-0-4-1.glsl
+          grep -q 'FsrcnnxPipeline' proj/app/src/main/java/com/example/liteplayer/ReferenceScalerView.kt
       - name: Give GPU test its own app identity
         run: |
           python3 - <<'PY'
