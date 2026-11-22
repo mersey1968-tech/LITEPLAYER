@@ -23,6 +23,7 @@ class VulkanHdrBridgeView(context: Context) : SurfaceView(context) {
     @Volatile private var surfaceWidth = 0
     @Volatile private var surfaceHeight = 0
     var onFailure: ((String) -> Unit)? = null
+    var onSurfaceReady: (() -> Unit)? = null
 
     init {
         setZOrderMediaOverlay(true)
@@ -39,6 +40,7 @@ class VulkanHdrBridgeView(context: Context) : SurfaceView(context) {
                             started = true
                             failed = false
                             active.set(true)
+                        post { onSurfaceReady?.invoke() }
                         } else {
                             failed = true
                             post { onFailure?.invoke(failure) }
@@ -65,6 +67,7 @@ class VulkanHdrBridgeView(context: Context) : SurfaceView(context) {
                                 started = true
                                 failed = false
                                 active.set(true)
+                            post { onSurfaceReady?.invoke() }
                             } else {
                                 failed = true
                                 post { onFailure?.invoke(failure) }
