@@ -230,9 +230,9 @@ class ReferenceScalerView(context: Context, private val hdrRequested: Boolean = 
                     sharedH = captureH
                 }
                 if (sharedFbo != 0) {
-                    if (hdrDiagnosticFrameCount < 48) {
+                    if (hdrDiagnosticFrameCount < 150) {
                         // Distinctive GPU-only HDR diagnostic for approximately
-                        // the first 48 frames. If blue appears but movie stays
+                        // the first 150 frames. If blue appears but movie stays
                         // black, Vulkan import/presentation works and the problem
                         // is in FSRCNNX composition. No CPU readback.
                         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, sharedFbo)
