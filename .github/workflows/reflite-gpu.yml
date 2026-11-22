@@ -41,6 +41,19 @@ jobs:
           PY
       - name: Add opt-in GPU renderer in isolated test copy
         run: python3 research/referencescaler/patch_gpu.py
+      - name: Give GPU test its own app identity
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          g=Path("proj/app/build.gradle.kts")
+          text=g.read_text()
+          assert 'com.example.reflite.experimental' in text
+          g.write_text(text.replace('com.example.reflite.experimental','com.example.reflite.gputest'))
+          m=Path("proj/app/src/main/AndroidManifest.xml")
+          text=m.read_text()
+          assert 'android:label="Reflite"' in text
+          m.write_text(text.replace('android:label="Reflite"','android:label="Reflite GPU Test"'))
+          PY
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
