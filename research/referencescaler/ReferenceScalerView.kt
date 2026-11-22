@@ -46,7 +46,7 @@ class ReferenceScalerView(context: Context) : GLSurfaceView(context), GLSurfaceV
     }
 
     fun setSourceSize(w: Int, h: Int) {
-        if (w !in 1..1920 || h !in 540..1080) return
+        if (w !in 1..1920 || h !in 1..1080 || (w < 960 && h < 540)) return
         queueEvent { srcW = w; srcH = h; allocatedW = 0 }
     }
 
@@ -183,6 +183,7 @@ class ReferenceScalerView(context: Context) : GLSurfaceView(context), GLSurfaceV
         """
         private val shaderHorizontal="""#version 300 es
             #extension GL_OES_EGL_image_external_essl3 : require
+            precision highp float;
             uniform samplerExternalOES video;
         """+common+"""
             vec3 sampleVideo(vec2 st){return texture(video,(texMatrix*vec4(st,0.0,1.0)).xy).rgb;}
@@ -202,6 +203,7 @@ class ReferenceScalerView(context: Context) : GLSurfaceView(context), GLSurfaceV
             }
         """
         private val shaderVertical="""#version 300 es
+            precision highp float;
             uniform sampler2D video;
         """+common+"""
             void main(){
