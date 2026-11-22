@@ -294,8 +294,8 @@ struct HdrBridge {
         initial.newLayout=VK_IMAGE_LAYOUT_GENERAL;
         initial.srcAccessMask=0;
         initial.dstAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;
-        initial.srcQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;
-        initial.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;
+        initial.srcQueueFamilyIndex=queueFamily;
+        initial.dstQueueFamilyIndex=VK_QUEUE_FAMILY_EXTERNAL;
         initial.image=sharedImage;
         initial.subresourceRange.aspectMask=VK_IMAGE_ASPECT_COLOR_BIT;
         initial.subresourceRange.levelCount=1;
@@ -330,9 +330,21 @@ struct HdrBridge {
             vkCmdPipelineBarrier(cmd,ss,ds,0,0,nullptr,0,nullptr,1,&b);
         };
         // OpenGL has flushed and finished writing the AHB before the call.
-        barrier(sharedImage,VK_IMAGE_LAYOUT_GENERAL,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-            VK_ACCESS_MEMORY_WRITE_BIT,VK_ACCESS_TRANSFER_READ_BIT,
-            VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_TRANSFER_BIT);
+        // Acquire AHardwareBuffer ownership from the OpenGL ES driver.
+        VkImageMemoryBarrier acquireShared{};
+        acquireShared.sType=VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        acquireShared.oldLayout=VK_IMAGE_LAYOUT_GENERAL;
+        acquireShared.newLayout=VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        acquireShared.srcQueueFamilyIndex=VK_QUEUE_FAMILY_EXTERNAL;
+        acquireShared.dstQueueFamilyIndex=queueFamily;
+        acquireShared.srcAccessMask=0;
+        acquireShared.dstAccessMask=VK_ACCESS_TRANSFER_READ_BIT;
+        acquireShared.image=sharedImage;
+        acquireShared.subresourceRange.aspectMask=VK_IMAGE_ASPECT_COLOR_BIT;
+        acquireShared.subresourceRange.levelCount=1;
+        acquireShared.subresourceRange.layerCount=1;
+        vkCmdPipelineBarrier(cmd,VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+            VK_PIPELINE_STAGE_TRANSFER_BIT,0,0,nullptr,0,nullptr,1,&acquireShared);
         barrier(swapImages[idx],VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
             0,VK_ACCESS_TRANSFER_WRITE_BIT,
             VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,VK_PIPELINE_STAGE_TRANSFER_BIT);
@@ -350,9 +362,21 @@ struct HdrBridge {
             VK_PIPELINE_STAGE_TRANSFER_BIT,VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
         // Preserve the imported image content across the next OpenGL frame.
         // The next GL write begins with GENERAL instead of undefined contents.
-        barrier(sharedImage,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,VK_IMAGE_LAYOUT_GENERAL,
-            VK_ACCESS_TRANSFER_READ_BIT,VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT,
-            VK_PIPELINE_STAGE_TRANSFER_BIT,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
+        // Release ownership back to OpenGL for the next FSRCNNX frame.
+        VkImageMemoryBarrier releaseShared{};
+        releaseShared.sType=VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        releaseShared.oldLayout=VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        releaseShared.newLayout=VK_IMAGE_LAYOUT_GENERAL;
+        releaseShared.srcQueueFamilyIndex=queueFamily;
+        releaseShared.dstQueueFamilyIndex=VK_QUEUE_FAMILY_EXTERNAL;
+        releaseShared.srcAccessMask=VK_ACCESS_TRANSFER_READ_BIT;
+        releaseShared.dstAccessMask=0;
+        releaseShared.image=sharedImage;
+        releaseShared.subresourceRange.aspectMask=VK_IMAGE_ASPECT_COLOR_BIT;
+        releaseShared.subresourceRange.levelCount=1;
+        releaseShared.subresourceRange.layerCount=1;
+        vkCmdPipelineBarrier(cmd,VK_PIPELINE_STAGE_TRANSFER_BIT,
+            VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,0,0,nullptr,0,nullptr,1,&releaseShared);
         vkEndCommandBuffer(cmd);
         VkPipelineStageFlags stage=VK_PIPELINE_STAGE_TRANSFER_BIT;
         VkSubmitInfo submit{};submit.sType=VK_STRUCTURE_TYPE_SUBMIT_INFO;
