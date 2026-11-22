@@ -28,6 +28,11 @@ class VulkanHdrBridgeView(context: Context) : SurfaceView(context) {
     @Volatile private var surfaceHeight = 0
     private val firstFrame = AtomicBoolean(false)
     private var surfaceGeneration = 0
+    @Volatile private var status = "HDR Vulkan surface not created"
+    @Volatile private var presentCount = 0
+    @Volatile private var firstPresent = false
+    fun hdrSnapshot(): String = "Vulkan: $status, ready=${isReady()}, " +
+        "surface=${surfaceWidth}x${surfaceHeight}, presents=$presentCount"
     private fun watchFirstFrame() {
         val generation = ++surfaceGeneration
         postDelayed({
@@ -50,8 +55,10 @@ class VulkanHdrBridgeView(context: Context) : SurfaceView(context) {
                     try {
                         active.set(false)
                         if (started) { nativeStop(); started = false }
+                        status = "Creating Vulkan HDR swapchain"
                         val failure = nativeStart(holder.surface)
                         if (failure.isEmpty()) {
+                            status = "HDR swapchain ready"
                             started = true
                             failed = false
                             active.set(true)
@@ -59,6 +66,7 @@ class VulkanHdrBridgeView(context: Context) : SurfaceView(context) {
                             post { onSurfaceReady?.invoke(); watchFirstFrame() }
                         } else {
                             failed = true
+                            status = failure
                             post { onFailure?.invoke(failure) }
                         }
                     } catch (t: Throwable) {
@@ -78,8 +86,10 @@ class VulkanHdrBridgeView(context: Context) : SurfaceView(context) {
                         try {
                             if (started) { nativeStop(); started = false }
                             if (!holder.surface.isValid) return@execute
+                            status = "Rebuilding Vulkan HDR after mode switch"
                             val failure = nativeStart(holder.surface)
                             if (failure.isEmpty()) {
+                                status = "HDR swapchain rebuilt"
                                 started = true
                                 failed = false
                                 active.set(true)
@@ -87,6 +97,7 @@ class VulkanHdrBridgeView(context: Context) : SurfaceView(context) {
                                 post { onSurfaceReady?.invoke(); watchFirstFrame() }
                             } else {
                                 failed = true
+                                status = failure
                                 post { onFailure?.invoke(failure) }
                             }
                         } catch (t: Throwable) {
@@ -116,6 +127,7 @@ class VulkanHdrBridgeView(context: Context) : SurfaceView(context) {
         if (!isReady()) return 0
         val fbo = nativePrepareShared(width, height)
         if (fbo == 0) reportFailure("Zero-copy HDR: " + nativeSharedError())
+        else status = "EGL/Vulkan FP16 shared framebuffer created"
         return fbo
     }
 
@@ -123,7 +135,11 @@ class VulkanHdrBridgeView(context: Context) : SurfaceView(context) {
     fun presentShared(): Boolean {
         if (!isReady()) return false
         val ok = nativePresentShared()
-        if (ok) firstFrame.set(true)
+        if (ok) {
+            firstFrame.set(true)
+            presentCount++
+            status = "HDR GPU frames submitted"
+        }
         else reportFailure("Vulkan HDR zero-copy present: " + nativeSharedError())
         return ok
     }
@@ -131,6 +147,7 @@ class VulkanHdrBridgeView(context: Context) : SurfaceView(context) {
     private fun reportFailure(message: String) {
         if (!failed) {
             failed = true
+            status = message
             active.set(false)
             post { onFailure?.invoke(message) }
         }
