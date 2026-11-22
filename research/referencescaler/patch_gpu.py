@@ -161,6 +161,7 @@ replace_once(
                 val hdrView = VulkanHdrBridgeView(this)
                 vulkanHdrView = hdrView
                 gpu.attachVulkan(hdrView)
+                hdrView.onSurfaceReady = { applyFrameRate() }
                 hdrView.onFailure = { error ->
                     if (vulkanHdrView === hdrView) {
                         referenceVulkanEnabled = false
@@ -190,7 +191,7 @@ replace_once(
 )
 replace_once(
     "        val surface = (playerView.videoSurfaceView as? SurfaceView)?.holder?.surface",
-    "        val surface = scalerView?.holder?.surface ?: (playerView.videoSurfaceView as? SurfaceView)?.holder?.surface"
+    "        val surface = (if (referenceVulkanEnabled) vulkanHdrView?.holder?.surface else scalerView?.holder?.surface) ?: (playerView.videoSurfaceView as? SurfaceView)?.holder?.surface"
 )
 # Restore saved bookmarks when an external launcher supplies a placeholder
 # zero position. A deliberate "Play from beginning" still wins above.
