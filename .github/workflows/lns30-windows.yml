@@ -8,18 +8,15 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
       - name: Compile native Windows x64 executable
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          $clang = (Get-Command clang++.exe -ErrorAction SilentlyContinue)
-          if ($null -ne $clang) {
-            & clang++.exe -std=c++17 -O2 -Wall -Wextra lns30/test.cpp -o dist/LNS30-test.exe
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          } else {
-            & g++.exe -std=c++17 -O2 -Wall -Wextra lns30/test.cpp -o dist/LNS30-test.exe
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          }
+          & cl.exe /nologo /std:c++17 /O2 /EHsc /W4 /Fe:dist\\LNS30-test.exe lns30\\test.cpp
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Run self-test
         shell: pwsh
         run: |
