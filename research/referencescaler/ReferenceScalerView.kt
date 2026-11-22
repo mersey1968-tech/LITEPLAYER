@@ -13,7 +13,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 
-/** Experimental unprotected 540p-1080p SDR GPU renderer. Default playback never uses this. */
+/** Experimental trained neural SDR renderer. Default playback never uses this. */
 class ReferenceScalerView(context: Context) : GLSurfaceView(context), GLSurfaceView.Renderer {
     @Volatile var decoderSurface: Surface? = null
         private set
@@ -89,13 +89,15 @@ class ReferenceScalerView(context: Context) : GLSurfaceView(context), GLSurfaceV
                 surfaceTexture?.updateTexImage()
                 surfaceTexture?.getTransformMatrix(transform)
             }
-            ensureFramebuffer(outW,srcH)
+            // Learned 2x luma residual + bilinear chroma on the GPU.
+            // For 540p/720p, output is then scaled to the display by GPU sampling.
+            ensureFramebuffer(srcW*2,srcH*2)
             GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER,framebuffer)
-            GLES30.glViewport(0,0,outW,srcH)
+            GLES30.glViewport(0,0,srcW*2,srcH*2)
             pass(progHorizontal,texVideo,GLES11Ext.GL_TEXTURE_EXTERNAL_OES,srcW,srcH,transform)
             GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER,0)
             GLES30.glViewport(0,0,outW,outH)
-            pass(progVertical,texIntermediate,GLES30.GL_TEXTURE_2D,outW,srcH,identity)
+            pass(progVertical,texIntermediate,GLES30.GL_TEXTURE_2D,srcW*2,srcH*2,identity)
         } catch (ex: Throwable) { fail("GPU rendering failed: " + ex.message) }
     }
 
@@ -200,55 +202,53 @@ class ReferenceScalerView(context: Context) : GLSurfaceView(context), GLSurfaceV
             #extension GL_OES_EGL_image_external_essl3 : require
             precision highp float;
             uniform samplerExternalOES video;
-        """+common+"""
-            vec3 sampleVideo(vec2 st){return texture(video,(texMatrix*vec4(st,0.0,1.0)).xy).rgb;}
-            void main(){
-                float pos=uv.x*inputSize.x-0.5;
-                float base=floor(pos),frac=pos-base;
-                vec3 a=sampleVideo(vec2((base+0.5)/inputSize.x,uv.y));
-                vec3 b=sampleVideo(vec2((base+1.5)/inputSize.x,uv.y));
-                vec3 before=sampleVideo(vec2((base-0.5)/inputSize.x,uv.y));
-                vec3 after=sampleVideo(vec2((base+2.5)/inputSize.x,uv.y));
-                float edge=max(edgeStrength(before,a,b),edgeStrength(a,b,after));
-                float cutoff=mix(0.98,0.86,edge);
-                vec3 sum=vec3(0.0);float total=0.0;
-                for(int k=-3;k<=4;k++){
-                    float weight=kernel(float(k)-frac,cutoff);
-                    sum+=weight*sampleVideo(vec2((base+float(k)+0.5)/inputSize.x,uv.y));
-                    total+=weight;
+            uniform mat4 texMatrix;
+            uniform vec2 inputSize;
+            in vec2 uv; out vec4 colorOut;
+            // Original Reflite Neural 2x, 8 hidden features, 3x3 convolution,
+            // ReLU and four learned subpixel luminance residuals.
+            const float W[72]=float[72](0.0596994,0.0086669,-0.0134230,0.0103808,0.2477307,-0.0295387,0.0965691,-0.0108631,0.1339298,-0.0976552,0.1159188,0.0110902,-0.1309186,-0.2134059,-0.0390848,-0.1141308,0.1323335,0.1644483,0.0631525,-0.0143496,-0.0448847,-0.0397466,0.1370724,0.0739098,-0.0214029,0.0738234,-0.0479896,0.0811354,0.0725350,0.1013255,-0.0790461,-0.1462412,0.0753565,-0.0328518,-0.0449193,0.0289933,0.1028217,0.0097367,-0.1132892,0.1118558,-0.2434822,0.0250340,0.0060627,0.1308180,0.0319086,-0.0516564,-0.0435863,0.0415384,0.0980680,-0.2619476,0.1004270,-0.0296154,0.1207969,0.0105051,0.0508897,0.0863300,0.0059038,-0.0782966,-0.1881388,-0.0115275,0.1349362,-0.0504053,0.1251914,0.0421386,0.0047298,0.0001191,0.0532849,-0.2920664,0.0335856,0.2020138,0.0046284,-0.0337481);
+            const float B[8]=float[8](-0.0165405,-0.0000500,-0.0210086,0.0058868,0.0305399,-0.0095345,-0.0092669,-0.0190037);
+            const float M[32]=float[32](0.1072826,-0.0725972,-0.0297296,-0.3055864,-0.3001271,-0.3100334,-0.1282784,-0.4923159,0.1025373,-0.0638999,0.0519550,-0.4212372,-0.2393530,-0.8458929,-0.2125198,0.0776311,0.0792031,-0.1713681,0.0205096,-0.0906425,-0.2985714,-0.4134095,-0.2273034,-0.6127194,0.0855680,-0.1462402,0.0686520,-0.2102010,-0.2210968,-0.9513974,-0.3159298,-0.0201317);
+            const float O[4]=float[4](0.0103235,0.0104369,0.0091512,0.0084687);
+            vec3 fetchRGB(vec2 pos) {
+                vec2 st=(pos+vec2(0.5))/inputSize;
+                return texture(video,(texMatrix*vec4(st,0.0,1.0)).xy).rgb;
+            }
+            void main() {
+                vec2 srcPixel=floor(gl_FragCoord.xy*0.5);
+                float patch[9];
+                for(int j=0;j<3;j++){
+                    for(int i=0;i<3;i++){
+                        vec3 rgb=fetchRGB(srcPixel+vec2(float(i-1),float(j-1)));
+                        patch[j*3+i]=dot(rgb,vec3(0.2126,0.7152,0.0722));
+                    }
                 }
-                vec3 reconstructed=sum/max(total,0.00001);
-                float containment=mix(0.30,0.92,edge);
-                vec3 outputColor=mix(reconstructed,clamp(reconstructed,min(a,b),max(a,b)),containment);
-                colorOut=vec4(clamp(outputColor,0.0,1.0),1.0);
+                float hidden[8];
+                for(int h=0;h<8;h++){
+                    float val=B[h];
+                    for(int k=0;k<9;k++) val+=W[h*9+k]*patch[k];
+                    hidden[h]=max(0.0,val);
+                }
+                int sx=int(mod(floor(gl_FragCoord.x-0.5),2.0));
+                int sy=int(mod(floor(gl_FragCoord.y-0.5),2.0));
+                int channel=sy*2+sx;
+                float residual=O[channel];
+                for(int h=0;h<8;h++) residual+=M[channel*8+h]*hidden[h];
+                // Spatial luma residual; retain source chroma and original grain.
+                vec3 base=texture(video,(texMatrix*vec4(uv,0.0,1.0)).xy).rgb;
+                float limited=clamp(residual,-0.12,0.12);
+                colorOut=vec4(clamp(base+vec3(limited),0.0,1.0),1.0);
             }
         """
         private val shaderVertical="""#version 300 es
             precision highp float;
             uniform sampler2D video;
-        """+common+"""
-            void main(){
-                float pos=uv.y*inputSize.y-0.5;
-                float base=floor(pos),frac=pos-base;
-                vec3 a=texture(video,vec2(uv.x,(base+0.5)/inputSize.y)).rgb;
-                vec3 b=texture(video,vec2(uv.x,(base+1.5)/inputSize.y)).rgb;
-                vec3 before=texture(video,vec2(uv.x,(base-0.5)/inputSize.y)).rgb;
-                vec3 after=texture(video,vec2(uv.x,(base+2.5)/inputSize.y)).rgb;
-                float edge=max(edgeStrength(before,a,b),edgeStrength(a,b,after));
-                float cutoff=mix(0.98,0.86,edge);
-                vec3 sum=vec3(0.0);float total=0.0;
-                for(int k=-3;k<=4;k++){
-                    float weight=kernel(float(k)-frac,cutoff);
-                    sum+=weight*texture(video,vec2(uv.x,(base+float(k)+0.5)/inputSize.y)).rgb;
-                    total+=weight;
-                }
-                vec3 reconstructed=sum/max(total,0.00001);
-                float containment=mix(0.30,0.92,edge);
-                vec3 outputColor=mix(reconstructed,clamp(reconstructed,min(a,b),max(a,b)),containment);
-                colorOut=vec4(clamp(outputColor,0.0,1.0),1.0);
-                // Proof that the actual final framebuffer is generated by Reflite.
-                // Only the explicit DIAGNOSTIC menu option can display this marker.
-                if (diagnostic > 0.5 && uv.x < 0.20 && uv.y > 0.91)
+            uniform float diagnostic;
+            in vec2 uv; out vec4 colorOut;
+            void main() {
+                colorOut=texture(video,uv);
+                if(diagnostic>0.5 && uv.x<0.20 && uv.y>0.91)
                     colorOut=vec4(1.0,0.0,1.0,1.0);
             }
         """
