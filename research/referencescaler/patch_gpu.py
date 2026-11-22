@@ -24,6 +24,7 @@ replace_once(
     // Reflite GPU rendering is opt-in and disabled by default.
     // Never change the established hardware-decoder SurfaceView path for HDR/4K.
     private var referenceScalerEnabled = false
+    private var referenceDiagnosticEnabled = false
     private var scalerView: ReferenceScalerView? = null
     private var currentVideoFormat: Format? = null
 
@@ -45,11 +46,16 @@ replace_once(
     }
 
     private fun showRefliteScalerDialog() {
-        val choices = arrayOf("Original LitePlayer rendering", "ReferenceScaler GPU (experimental SDR 540p–1080p)")
+        val choices = arrayOf(
+            "Original LitePlayer rendering",
+            "ReferenceScaler GPU (normal)",
+            "ReferenceScaler GPU DIAGNOSTIC (magenta corner)"
+        )
         AlertDialog.Builder(this)
             .setTitle("Reflite video rendering")
-            .setSingleChoiceItems(choices, if (referenceScalerEnabled) 1 else 0) { dialog, which ->
-                referenceScalerEnabled = which == 1
+            .setSingleChoiceItems(choices, if (!referenceScalerEnabled) 0 else if (referenceDiagnosticEnabled) 2 else 1) { dialog, which ->
+                referenceScalerEnabled = which != 0
+                referenceDiagnosticEnabled = which == 2
                 if (referenceScalerEnabled && !allowedForReferenceScaler(resolvedScalerFormat())) {
                     val fmt = resolvedScalerFormat()
                     val info = if (fmt == null) "video format not reported yet" else
@@ -82,11 +88,13 @@ replace_once(
             val existing = scalerView
             if (existing != null) {
                 existing.setSourceSize(fmt.width, fmt.height)
+                existing.setDiagnostic(referenceDiagnosticEnabled)
                 return
             }
             val gpu = ReferenceScalerView(this)
             scalerView = gpu
             gpu.setSourceSize(fmt.width, fmt.height)
+            gpu.setDiagnostic(referenceDiagnosticEnabled)
             gpu.onFailure = { failure ->
                 if (scalerView === gpu) {
                     referenceScalerEnabled = false
