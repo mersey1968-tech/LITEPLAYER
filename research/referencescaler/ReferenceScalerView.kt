@@ -27,6 +27,7 @@ class ReferenceScalerView(context: Context, private val hdrRequested: Boolean = 
     private var framebuffer = 0
     private var neuralPipeline: FsrcnnxPipeline? = null
     @Volatile private var hdrSurfaceActive = false
+    @Volatile private var hdrConfigTenBit = false
     var onHdrUnavailable: (() -> Unit)? = null
     private var surfaceTexture: SurfaceTexture? = null
     private val pending = AtomicBoolean(false)
@@ -59,14 +60,51 @@ class ReferenceScalerView(context: Context, private val hdrRequested: Boolean = 
         if (hdrRequested) {
             // Request true 10-bit EGL buffers, not an SDR framebuffer with
             // brightened colours. Only mark HDR active if PQ EGL creation works.
-            setEGLConfigChooser(10,10,10,2,0,0)
+            // The Shield may expose no RGB10 EGLConfig at all. Asking
+            // GLSurfaceView for a mandatory 10:10:10:2 config crashes its GL
+            // thread with "No configs match configSpec". Pick the best supported
+            // ES2/ES3-compatible window config and only attempt PQ on RGB10.
+            setEGLConfigChooser(object : GLSurfaceView.EGLConfigChooser {
+                override fun chooseConfig(egl: EGL10, display: EGLDisplay): EGLConfig {
+                    val spec = intArrayOf(
+                        0x3040, 4, // EGL_RENDERABLE_TYPE: EGL_OPENGL_ES2_BIT
+                        0x3033, 4, // EGL_SURFACE_TYPE: EGL_WINDOW_BIT
+                        EGL10.EGL_NONE
+                    )
+                    val count = IntArray(1)
+                    check(egl.eglChooseConfig(display,spec,null,0,count) && count[0] > 0) {
+                        "No GLES-compatible EGL window configs"
+                    }
+                    val configs = arrayOfNulls<EGLConfig>(count[0])
+                    check(egl.eglChooseConfig(display,spec,configs,configs.size,count)) {
+                        "Could not query EGL window configs"
+                    }
+                    fun channel(cfg: EGLConfig, attribute: Int): Int {
+                        val value=IntArray(1)
+                        return if (egl.eglGetConfigAttrib(display,cfg,attribute,value)) value[0] else 0
+                    }
+                    val candidates=configs.filterNotNull()
+                    val rgb10=candidates.firstOrNull {
+                        channel(it,EGL10.EGL_RED_SIZE)>=10 &&
+                        channel(it,EGL10.EGL_GREEN_SIZE)>=10 &&
+                        channel(it,EGL10.EGL_BLUE_SIZE)>=10
+                    }
+                    val rgb8=candidates.firstOrNull {
+                        channel(it,EGL10.EGL_RED_SIZE)>=8 &&
+                        channel(it,EGL10.EGL_GREEN_SIZE)>=8 &&
+                        channel(it,EGL10.EGL_BLUE_SIZE)>=8
+                    }
+                    hdrConfigTenBit = rgb10 != null
+                    return rgb10 ?: rgb8 ?: candidates.first()
+                }
+            })
             setEGLWindowSurfaceFactory(object : GLSurfaceView.EGLWindowSurfaceFactory {
                 override fun createWindowSurface(
                     egl: EGL10, display: EGLDisplay, config: EGLConfig, nativeWindow: Any
                 ): EGLSurface {
                     hdrSurfaceActive = false
                     val extensions = egl.eglQueryString(display,EGL10.EGL_EXTENSIONS).orEmpty()
-                    if (extensions.contains("EGL_EXT_gl_colorspace_bt2020_pq")) {
+                    if (hdrConfigTenBit && extensions.contains("EGL_EXT_gl_colorspace_bt2020_pq")) {
                         val attrs = intArrayOf(0x309D,0x3340,EGL10.EGL_NONE)
                         val surface = egl.eglCreateWindowSurface(display,config,nativeWindow,attrs)
                         if (surface != null && surface != EGL10.EGL_NO_SURFACE) {
