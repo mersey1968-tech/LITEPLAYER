@@ -43,6 +43,7 @@ class ReferenceScalerView(context: Context, private val hdrRequested: Boolean = 
     private var neuralScale = 1.0f
     private var slowFrames = 0
     private var fastFrames = 0
+    private var presentedFrames = 0
     private var hasVideoFrame = false
     @Volatile private var diagnosticEnabled = false
 
@@ -133,11 +134,12 @@ class ReferenceScalerView(context: Context, private val hdrRequested: Boolean = 
             if (!hasVideoFrame) return
             val workW = (srcW * neuralScale).toInt().coerceAtLeast(1)
             val workH = (srcH * neuralScale).toInt().coerceAtLeast(1)
-            val start = System.nanoTime()
+            // Full GPU fences on every frame add CPU/GPU stalls and can cause
+            // video to lag audio. Sample completion only every eighth new frame.
+            val sampleGpu = newFrame && (++presentedFrames % 8 == 0)
+            val start = if (sampleGpu) System.nanoTime() else 0L
             neuralPipeline?.render(texVideo, transform, workW, workH, outW, outH, diagnosticEnabled, hdrRequested && hdrSurfaceActive)
-            if (newFrame) {
-                // GPU work is asynchronous. Wait for completion before judging
-                // whether the network meets the movie-frame deadline.
+            if (sampleGpu) {
                 GLES30.glFinish()
                 val elapsedMs = (System.nanoTime() - start) / 1_000_000.0
                 // Start at native source size. If rendering repeatedly misses a
@@ -145,13 +147,13 @@ class ReferenceScalerView(context: Context, private val hdrRequested: Boolean = 
                 if (elapsedMs > 29.0) { slowFrames++; fastFrames = 0 }
                 else if (elapsedMs < 13.0) { fastFrames++; slowFrames = 0 }
                 else { slowFrames = 0; fastFrames = 0 }
-                if (slowFrames >= 6 && neuralScale > 0.51f) {
+                if (slowFrames >= 2 && neuralScale > 0.51f) {
                     neuralScale = if (neuralScale > 0.9f) 0.75f else 0.5f
                     slowFrames = 0
                     Log.i("Reflite GPU", "FSRCNNX performance scale -> " + neuralScale)
                 }
                 // Avoid oscillation: recover quality only after prolonged headroom.
-                if (fastFrames >= 240 && neuralScale < 1.0f) {
+                if (fastFrames >= 30 && neuralScale < 1.0f) {
                     neuralScale = if (neuralScale < 0.6f) 0.75f else 1.0f
                     fastFrames = 0
                 }
