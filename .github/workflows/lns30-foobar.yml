@@ -26,7 +26,7 @@ jobs:
         run: |
           $header='wtl/Include/atlgdi.h'
           $text=Get-Content $header -Raw
-          $text=$text.Replace('namespace WTL' + [Environment]::NewLine + '{','namespace WTL' + [Environment]::NewLine + '{' + [Environment]::NewLine + 'template <bool t_bManaged> class CDCT;' + [Environment]::NewLine + 'typedef CDCT<false> CDCHandle;')
+          $text=$text.Replace('namespace WTL' + [Environment]::NewLine + '{','namespace WTL' + [Environment]::NewLine + '{' + [Environment]::NewLine + 'template <bool t_bManaged> class CDCT;' + [Environment]::NewLine + 'typedef CDCT<false> CDCHandle;' + [Environment]::NewLine + 'typedef CDCT<true> CDC;')
           Set-Content -Path $header -Value $text
       - name: Prepare isolated LNS30 DSP component
         shell: pwsh
