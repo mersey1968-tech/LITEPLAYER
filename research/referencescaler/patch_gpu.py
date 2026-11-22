@@ -139,8 +139,22 @@ replace_once(
     "        val surface = (playerView.videoSurfaceView as? SurfaceView)?.holder?.surface",
     "        val surface = scalerView?.holder?.surface ?: (playerView.videoSurfaceView as? SurfaceView)?.holder?.surface"
 )
-# Fix naming of controls: existing Seek settings button is reused for the renderer
-# in experiment only. Ensure in the experimental APK it's labelled accurately.
+# Restore saved bookmarks when an external launcher supplies a placeholder
+# zero position. A deliberate "Play from beginning" still wins above.
+replace_once(
+    "return supplied?.coerceAtLeast(0L) ?: restoredPosition(u)",
+    """return when {
+            supplied != null && supplied > 0L -> supplied
+            else -> restoredPosition(u)
+        }"""
+)
+# Externally reported positions should match saved progress even if a caller
+# returns after a decoder teardown resets ExoPlayer's currentPosition to zero.
+replace_once(
+    "val pos = player?.currentPosition ?: position",
+    """val pos = (player?.currentPosition ?: position)
+                .takeIf { it > 0L } ?: uri?.let { restoredPosition(it) } ?: 0L"""
+)
 source.write_text(s)
 layout=Path("proj/app/src/main/res/layout/activity_main.xml")
 x=layout.read_text()
