@@ -17,6 +17,9 @@ for group in tree.getroot().findall(f"{ns}ItemGroup"):
             name=elem.get("Include", "").lower().replace("\\","/")
             if name not in {"main.cpp","dsp_sample.cpp","pch.cpp"}:
                 group.remove(elem)
+# Only the component project is renamed; SDK dependencies retain their own names.
+props=ET.SubElement(tree.getroot(),ns+"PropertyGroup")
+ET.SubElement(props,ns+"TargetName").text="foo_lns30"
 tree.write(project,encoding="utf-8",xml_declaration=True)
 print("Configured foo_sample project to include LNS30 DSP only.")
 
