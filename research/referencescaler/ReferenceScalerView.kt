@@ -22,8 +22,7 @@ class ReferenceScalerView(context: Context) : GLSurfaceView(context), GLSurfaceV
     private var texVideo = 0
     private var texIntermediate = 0
     private var framebuffer = 0
-    private var progHorizontal = 0
-    private var progVertical = 0
+    private var neuralPipeline: FsrcnnxPipeline? = null
     private var surfaceTexture: SurfaceTexture? = null
     private val pending = AtomicBoolean(false)
     private val transform = FloatArray(16)
@@ -65,8 +64,9 @@ class ReferenceScalerView(context: Context) : GLSurfaceView(context), GLSurfaceV
             GLES30.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES,texVideo)
             for (p in intArrayOf(GLES30.GL_TEXTURE_MIN_FILTER,GLES30.GL_TEXTURE_MAG_FILTER))
                 GLES30.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES,p,GLES30.GL_LINEAR)
-            progHorizontal = link(shaderVertex,shaderHorizontal)
-            progVertical = link(shaderVertex,shaderVertical)
+            val trainedModel = context.assets.open("reflite/FSRCNNX_x2_8-0-4-1.glsl")
+                .bufferedReader().use { it.readText() }
+            neuralPipeline = FsrcnnxPipeline(trainedModel)
             surfaceTexture = SurfaceTexture(texVideo).also { st ->
                 st.setDefaultBufferSize(srcW, srcH)
                 st.setOnFrameAvailableListener { pending.set(true); requestRender() }
@@ -89,15 +89,7 @@ class ReferenceScalerView(context: Context) : GLSurfaceView(context), GLSurfaceV
                 surfaceTexture?.updateTexImage()
                 surfaceTexture?.getTransformMatrix(transform)
             }
-            // Learned 2x luma residual + bilinear chroma on the GPU.
-            // For 540p/720p, output is then scaled to the display by GPU sampling.
-            ensureFramebuffer(srcW*2,srcH*2)
-            GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER,framebuffer)
-            GLES30.glViewport(0,0,srcW*2,srcH*2)
-            pass(progHorizontal,texVideo,GLES11Ext.GL_TEXTURE_EXTERNAL_OES,srcW,srcH,transform)
-            GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER,0)
-            GLES30.glViewport(0,0,outW,outH)
-            pass(progVertical,texIntermediate,GLES30.GL_TEXTURE_2D,srcW*2,srcH*2,identity)
+            neuralPipeline?.render(texVideo,transform,srcW,srcH,outW,outH,diagnosticEnabled)
         } catch (ex: Throwable) { fail("GPU rendering failed: " + ex.message) }
     }
 
@@ -168,6 +160,8 @@ class ReferenceScalerView(context: Context) : GLSurfaceView(context), GLSurfaceV
             surfaceTexture?.setOnFrameAvailableListener(null)
             surfaceTexture?.release()
             surfaceTexture=null
+            neuralPipeline?.close()
+            neuralPipeline=null
         }
     }
 
