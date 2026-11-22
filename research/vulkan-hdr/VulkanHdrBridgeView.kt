@@ -14,7 +14,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * The initial interoperability route uses RGBA readback, so it may not be able
  * to sustain 1080p playback. This is opt-in and SDR is the unchanged default.
  */
-internal class VulkanHdrBridgeView(context: Context) : SurfaceView(context) {
+class VulkanHdrBridgeView(context: Context) : SurfaceView(context) {
     private external fun nativeStart(surface: Surface): String
     private external fun nativeFrame(rgba: ByteBuffer, width: Int, height: Int): Boolean
     private external fun nativeStop()
