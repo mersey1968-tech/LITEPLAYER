@@ -51,11 +51,17 @@ replace_once(
             "Original LitePlayer rendering",
             "ReferenceScaler GPU (normal)",
             "ReferenceScaler GPU DIAGNOSTIC (magenta corner)",
-            "FSRCNNX SDR to HDR10 (experimental)"
+            "FSRCNNX SDR to HDR10 (experimental)",
+            "Vulkan HDR10 output test (no video)"
         )
         AlertDialog.Builder(this)
             .setTitle("Reflite video rendering")
             .setSingleChoiceItems(choices, if (!referenceScalerEnabled) 0 else if (referenceHdrEnabled) 3 else if (referenceDiagnosticEnabled) 2 else 1) { dialog, which ->
+                if (which == 4) {
+                    dialog.dismiss()
+                    startActivity(android.content.Intent(this, VulkanHdrProbeActivity::class.java))
+                    return@setSingleChoiceItems
+                }
                 val wantHdr = which == 3
                 // EGL colours cannot be changed on a running GLSurfaceView.
                 // Recreate only when toggling between HDR and SDR surfaces.
