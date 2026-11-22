@@ -108,7 +108,7 @@ replace_once(
 )
 replace_once(
     "        seekSettingsButton.setOnClickListener { showSeekSettingsDialog() }",
-    "        seekSettingsButton.setOnClickListener { showRefliteScalerDialog() }"
+    "        seekSettingsButton.setOnClickListener { showSeekSettingsDialog() }\n        findViewById<Button>(R.id.refliteScalerButton).setOnClickListener { showRefliteScalerDialog() }"
 )
 replace_once(
     "        player = null\n        playerView.player = null",
@@ -123,7 +123,16 @@ replace_once(
 source.write_text(s)
 layout=Path("proj/app/src/main/res/layout/activity_main.xml")
 x=layout.read_text()
-x=x.replace('android:text="Skip"', 'android:text="Scaler"', 1)
+needle='        <Button android:id="@+id/seekSettingsButton"'
+if x.count(needle)!=1: raise RuntimeError("Could not locate seek control for safe scaler button insertion")
+# Separate scaler toggle: do not steal the existing Skip settings button.
+addition='''        <Button android:id="@+id/refliteScalerButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Scaler" />
+'''
+# Insert just before the existing Skip button.
+x=x.replace(needle,addition+needle,1)
 layout.write_text(x)
 gpu=Path("proj/app/src/main/java/com/example/liteplayer/ReferenceScalerView.kt")
 gpu.write_bytes(Path("research/referencescaler/ReferenceScalerView.kt").read_bytes())
