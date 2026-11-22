@@ -65,8 +65,10 @@ jobs:
         run: |
           mkdir -p proj/app/src/main/cpp
           cp research/vulkan-hdr/VulkanHdrProbe.cpp proj/app/src/main/cpp/
+          cp research/vulkan-hdr/VulkanHdrBridge.cpp proj/app/src/main/cpp/
           cp research/vulkan-hdr/CMakeLists.txt proj/app/src/main/cpp/
           cp research/vulkan-hdr/VulkanHdrProbeActivity.kt proj/app/src/main/java/com/example/liteplayer/
+          cp research/vulkan-hdr/VulkanHdrBridgeView.kt proj/app/src/main/java/com/example/liteplayer/
           python3 - <<'PY'
           from pathlib import Path
           m=Path("proj/app/src/main/AndroidManifest.xml")
