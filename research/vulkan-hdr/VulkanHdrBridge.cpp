@@ -350,11 +350,11 @@ struct HdrBridge {
         barrier(swapImages[idx],VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
             0,VK_ACCESS_TRANSFER_WRITE_BIT,
             VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,VK_PIPELINE_STAGE_TRANSFER_BIT);
-        // Diagnostic sequence: first 60 frames draw directly onto the SAME
+        // Diagnostic sequence: first 20 diagnostic submissions draw directly onto the SAME
         // live HDR swapchain, without sampling the external shared buffer.
         // A visible red frame means Android can display this Vulkan SurfaceView.
         // Black red frames point to swapchain compositing, not FSRCNNX/AHB.
-        const bool directRedTest=hdrFrameOrdinal++<60;
+        const bool directRedTest=hdrFrameOrdinal++<20;
         if(directRedTest){
             VkClearColorValue red{};
             red.float32[0]=0.72f; red.float32[1]=0.02f;
