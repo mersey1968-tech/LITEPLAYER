@@ -79,9 +79,10 @@ jobs:
           x+='\nandroid { externalNativeBuild { cmake { path = file("src/main/cpp/CMakeLists.txt") } } }\n'
           g.write_text(x)
           PY
-      - uses: android-actions/setup-android@v3
       - name: Install Vulkan-capable Android NDK and CMake
-        run: sdkmanager --install "ndk;27.2.12479018" "cmake;3.22.1"
+        run: |
+          echo "Using Android SDK at ${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          yes | sdkmanager --install "ndk;27.2.12479018" "cmake;3.22.1" || test ${PIPESTATUS[1]} -eq 0
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
