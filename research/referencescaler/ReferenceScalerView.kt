@@ -33,6 +33,12 @@ class ReferenceScalerView(context: Context) : GLSurfaceView(context), GLSurfaceV
     private var allocatedW = 0
     private var allocatedH = 0
     private var failed = false
+    // Reduce the neural network workload on sustained slow frames. The original
+    // decoder image remains full resolution for chroma and the final composite.
+    private var neuralScale = 1.0f
+    private var slowFrames = 0
+    private var fastFrames = 0
+    private var hasVideoFrame = false
     @Volatile private var diagnosticEnabled = false
 
     fun setDiagnostic(enabled: Boolean) {
@@ -85,11 +91,35 @@ class ReferenceScalerView(context: Context) : GLSurfaceView(context), GLSurfaceV
     override fun onDrawFrame(gl: GL10?) {
         if (failed || outW < 1 || outH < 1) return
         try {
-            if (pending.getAndSet(false)) {
+            val newFrame = pending.getAndSet(false)
+            if (newFrame) {
                 surfaceTexture?.updateTexImage()
                 surfaceTexture?.getTransformMatrix(transform)
+                hasVideoFrame = true
             }
-            neuralPipeline?.render(texVideo,transform,srcW,srcH,outW,outH,diagnosticEnabled)
+            if (!hasVideoFrame) return
+            val workW = (srcW * neuralScale).toInt().coerceAtLeast(1)
+            val workH = (srcH * neuralScale).toInt().coerceAtLeast(1)
+            val start = System.nanoTime()
+            neuralPipeline?.render(texVideo, transform, workW, workH, outW, outH, diagnosticEnabled)
+            if (newFrame) {
+                val elapsedMs = (System.nanoTime() - start) / 1_000_000.0
+                // Start at native source size. If rendering repeatedly misses a
+                // 30fps budget, progressively back off: 1080p -> ~810p -> 540p.
+                if (elapsedMs > 29.0) { slowFrames++; fastFrames = 0 }
+                else if (elapsedMs < 13.0) { fastFrames++; slowFrames = 0 }
+                else { slowFrames = 0; fastFrames = 0 }
+                if (slowFrames >= 6 && neuralScale > 0.51f) {
+                    neuralScale = if (neuralScale > 0.9f) 0.75f else 0.5f
+                    slowFrames = 0
+                    Log.i("Reflite GPU", "FSRCNNX performance scale -> " + neuralScale)
+                }
+                // Avoid oscillation: recover quality only after prolonged headroom.
+                if (fastFrames >= 240 && neuralScale < 1.0f) {
+                    neuralScale = if (neuralScale < 0.6f) 0.75f else 1.0f
+                    fastFrames = 0
+                }
+            }
         } catch (ex: Throwable) { fail("GPU rendering failed: " + ex.message) }
     }
 
