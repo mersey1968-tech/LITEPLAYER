@@ -104,15 +104,23 @@ class ReferenceScalerView(context: Context, private val hdrRequested: Boolean = 
                 ): EGLSurface {
                     hdrSurfaceActive = false
                     val extensions = egl.eglQueryString(display,EGL10.EGL_EXTENSIONS).orEmpty()
-                    if (hdrConfigTenBit && extensions.contains("EGL_EXT_gl_colorspace_bt2020_pq")) {
+                    // A 10-bit EGL window config is not a prerequisite for
+                    // requesting BT.2020/PQ on all Android implementations.
+                    // Android maps this colourscape to an HDR dataspace.
+                    // Let EGL decide whether this exact window/config can use PQ.
+                    if (extensions.contains("EGL_EXT_gl_colorspace_bt2020_pq")) {
                         val attrs = intArrayOf(0x309D,0x3340,EGL10.EGL_NONE)
                         val surface = egl.eglCreateWindowSurface(display,config,nativeWindow,attrs)
                         if (surface != null && surface != EGL10.EGL_NO_SURFACE) {
                             hdrSurfaceActive = true
+                            Log.i("Reflite HDR10", "EGL BT2020 PQ window created; RGB10 config=" + hdrConfigTenBit)
                             return surface
                         }
+                        Log.w("Reflite HDR10", "EGL rejected BT2020 PQ surface, error=" + egl.eglGetError())
                     }
-                    // Remain SDR rather than displaying PQ values as ordinary SDR.
+                    // Keep normal FSRCNNX image unaffected on unsupported drivers.
+                    Log.w("Reflite HDR10", "PQ unavailable, using SDR window; extensions support PQ=" +
+                        extensions.contains("EGL_EXT_gl_colorspace_bt2020_pq"))
                     return egl.eglCreateWindowSurface(display,config,nativeWindow,null)
                 }
                 override fun destroySurface(egl: EGL10, display: EGLDisplay, surface: EGLSurface) {
