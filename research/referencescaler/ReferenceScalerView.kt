@@ -69,6 +69,11 @@ class ReferenceScalerView(context: Context, private val hdrRequested: Boolean = 
 
     fun attachVulkan(bridge: VulkanHdrBridgeView?) {
         vulkanBridge = bridge
+        // Crucial: this source-renderer must sit BELOW the Vulkan media overlay.
+        // Two SurfaceViews with the same Z composition order can be stacked
+        // arbitrarily by Android SurfaceFlinger, masking presented HDR pixels.
+        // Configure before the SurfaceView is attached to its parent.
+        if (bridge != null) setZOrderMediaOverlay(false)
     }
 
     fun setDiagnostic(enabled: Boolean) {
