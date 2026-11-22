@@ -15,6 +15,10 @@ import java.util.concurrent.atomic.AtomicBoolean
 class VulkanHdrBridgeView(context: Context) : SurfaceView(context) {
     private external fun nativeStart(surface: Surface): String
     private external fun nativeFrame(rgba: ByteBuffer, width: Int, height: Int): Boolean
+    private external fun nativePrepareShared(width: Int, height: Int): Int
+    private external fun nativePresentShared(): Boolean
+    private external fun nativeReleaseSharedGL()
+    private external fun nativeSharedError(): String
     private external fun nativeStop()
     private val active = AtomicBoolean(false)
     private val lifecycle = Executors.newSingleThreadExecutor()
@@ -93,6 +97,29 @@ class VulkanHdrBridgeView(context: Context) : SurfaceView(context) {
         })
     }
     fun isReady(): Boolean = active.get() && !failed
+    /** GL thread only: imports the same AHardwareBuffer into GLES and Vulkan. */
+    fun prepareShared(width: Int, height: Int): Int {
+        if (!isReady()) return 0
+        val fbo = nativePrepareShared(width, height)
+        if (fbo == 0) reportFailure("Zero-copy HDR: " + nativeSharedError())
+        return fbo
+    }
+
+    /** Called only after glFinish has made the shared image visible to Vulkan. */
+    fun presentShared(): Boolean {
+        if (!isReady()) return false
+        val ok = nativePresentShared()
+        if (!ok) reportFailure("Vulkan HDR zero-copy present: " + nativeSharedError())
+        return ok
+    }
+    fun releaseSharedGL() = nativeReleaseSharedGL()
+    private fun reportFailure(message: String) {
+        if (!failed) {
+            failed = true
+            active.set(false)
+            post { onFailure?.invoke(message) }
+        }
+    }
     fun send(rgba: ByteBuffer, w: Int, h: Int): Boolean {
         if (!isReady()) return false
         val result = nativeFrame(rgba,w,h)
