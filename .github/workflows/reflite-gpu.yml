@@ -1,4 +1,4 @@
-name: Reflite GPU ReferenceScaler experimental APK
+name: Reflite GPU FSRCNNX neural test APK
 on:
   push:
     branches: [reflite-gpu-stage1]
