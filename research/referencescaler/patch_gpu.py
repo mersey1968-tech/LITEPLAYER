@@ -102,8 +102,19 @@ replace_once(
                 return
             }
             val gpu = ReferenceScalerView(this, referenceHdrEnabled)
-            gpu.onHdrUnavailable = {
-                Toast.makeText(this, "HDR10 EGL output unavailable: remaining in SDR", Toast.LENGTH_LONG).show()
+            gpu.onHdrUnavailable = { details ->
+                val displayHdr = if (android.os.Build.VERSION.SDK_INT >= 24)
+                    window.decorView.display?.hdrCapabilities?.supportedHdrTypes?.joinToString() ?: "unavailable"
+                else "API too old"
+                AlertDialog.Builder(this)
+                    .setTitle("Reflite HDR output diagnostic")
+                    .setMessage("HDR10 surface unavailable: continuing in SDR.\\n\\n" +
+                        "Shield Android API: " + android.os.Build.VERSION.SDK_INT + "\\n" +
+                        "Display HDR types: " + displayHdr + "\\n" +
+                        details + "\\n\\n" +
+                        "This tests the Shield graphics output. It does not alter FSRCNNX or the original HDR decoder.")
+                    .setPositiveButton("OK", null)
+                    .show()
             }
             scalerView = gpu
             gpu.setSourceSize(fmt.width, fmt.height)
