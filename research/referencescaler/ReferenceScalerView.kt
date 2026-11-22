@@ -49,7 +49,9 @@ class ReferenceScalerView(context: Context, private val hdrRequested: Boolean = 
     private var hasVideoFrame = false
     @Volatile private var diagnosticEnabled = false
     @Volatile private var vulkanBridge: VulkanHdrBridgeView? = null
-    private var readback: ByteBuffer? = null
+    private var sharedFbo = 0
+    private var sharedW = 0
+    private var sharedH = 0
     fun attachVulkan(bridge: VulkanHdrBridgeView?) {
         vulkanBridge = bridge
     }
@@ -201,25 +203,26 @@ class ReferenceScalerView(context: Context, private val hdrRequested: Boolean = 
             val start = if (sampleGpu) System.nanoTime() else 0L
             val bridge = vulkanBridge?.takeIf { it.isReady() }
             if (bridge != null && newFrame) {
-                // Experimental EGL -> Vulkan bridge. SDR FSRCNNX output remains
-                // unchanged, then Vulkan maps it to HDR10 PQ for presentation.
-                // Bound readback size to avoid 4K GPU->CPU transfers.
-                val factor = minOf(1.0f, 1280f / srcW, 720f / srcH)
-                val captureW = (srcW * factor).toInt().coerceAtLeast(2)
-                val captureH = (srcH * factor).toInt().coerceAtLeast(2)
-                ensureFramebuffer(captureW, captureH)
-                neuralPipeline?.render(texVideo, transform, workW, workH,
-                    captureW, captureH, false, false, framebuffer)
-                val bytes = captureW * captureH * 4
-                val upload = readback?.takeIf { it.capacity() == bytes }
-                    ?: ByteBuffer.allocateDirect(bytes).order(ByteOrder.nativeOrder()).also { readback = it }
-                upload.position(0)
-                GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, framebuffer)
-                GLES30.glReadPixels(0, 0, captureW, captureH,
-                    GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, upload)
-                GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
-                upload.position(0)
-                bridge.send(upload, captureW, captureH)
+                // True GPU-to-GPU path: FSRCNNX writes BT2020/PQ FP16 directly
+                // to an EGLImage backed by an Android hardware buffer. Vulkan
+                // imports the same allocation; no glReadPixels or CPU transfer.
+                // Start conservatively at source size, preserving neural detail.
+                val captureW = srcW.coerceAtLeast(2)
+                val captureH = srcH.coerceAtLeast(2)
+                if (sharedFbo == 0 || sharedW != captureW || sharedH != captureH) {
+                    if (sharedFbo != 0) bridge.releaseSharedGL()
+                    sharedFbo = bridge.prepareShared(captureW, captureH)
+                    sharedW = captureW
+                    sharedH = captureH
+                }
+                if (sharedFbo != 0) {
+                    neuralPipeline?.render(texVideo, transform, workW, workH,
+                        captureW, captureH, false, true, sharedFbo)
+                    // One shared buffer requires GPU completion before Vulkan
+                    // reads it. No readback, pixel upload, or CPU conversion.
+                    GLES30.glFinish()
+                    bridge.presentShared()
+                }
             } else {
                 neuralPipeline?.render(texVideo, transform, workW, workH, outW, outH,
                     diagnosticEnabled, hdrRequested && hdrSurfaceActive)
@@ -319,7 +322,10 @@ class ReferenceScalerView(context: Context, private val hdrRequested: Boolean = 
             if (framebuffer!=0) GLES30.glDeleteFramebuffers(1,intArrayOf(framebuffer),0)
             texIntermediate=0
             framebuffer=0
-            readback=null
+            if (sharedFbo != 0) vulkanBridge?.releaseSharedGL()
+            sharedFbo = 0
+            sharedW = 0
+            sharedH = 0
         }
     }
 
