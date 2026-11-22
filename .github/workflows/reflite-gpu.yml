@@ -78,7 +78,7 @@ jobs:
           m.write_text(text)
           g=Path("proj/app/build.gradle.kts")
           x=g.read_text()
-          x+='\nandroid { externalNativeBuild { cmake { path = file("src/main/cpp/CMakeLists.txt") } } }\n'
+          x+='\nandroid { defaultConfig { minSdk = 26 } externalNativeBuild { cmake { path = file("src/main/cpp/CMakeLists.txt") } } }\n'
           g.write_text(x)
           PY
       - uses: android-actions/setup-android@v3
