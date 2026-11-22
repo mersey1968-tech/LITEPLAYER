@@ -125,7 +125,7 @@ internal class FsrcnnxPipeline(raw: String) {
         releaseTargets();allocatedW=w;allocatedH=h
         stages.forEach { targets.add(allocate(if(it.scaled)2*w else w,if(it.scaled)2*h else h)) }
     }
-    fun render(video:Int,matrix:FloatArray,w:Int,h:Int,outW:Int,outH:Int,diagnostic:Boolean,hdr:Boolean=false) {
+    fun render(video:Int,matrix:FloatArray,w:Int,h:Int,outW:Int,outH:Int,diagnostic:Boolean,hdr:Boolean=false,outputFbo:Int=0) {
         ensureSize(w,h);val named=mutableMapOf<String,Int>()
         stages.forEachIndexed { idx,stage ->
             val t=targets[idx]
@@ -143,7 +143,7 @@ internal class FsrcnnxPipeline(raw: String) {
                 GLES30.glUniformMatrix4fv(GLES30.glGetUniformLocation(stage.program,"uMatrix"),1,false,matrix,0)
             draw(stage.program);named[stage.output]=t.texture
         }
-        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER,0)
+        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER,outputFbo)
         GLES30.glViewport(0,0,outW,outH);GLES30.glUseProgram(composite)
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D,targets.last().texture)
