@@ -241,10 +241,19 @@ struct HdrBridge {
         auto getProperties=(PFN_vkGetAndroidHardwareBufferPropertiesANDROID)
            vkGetDeviceProcAddr(device,"vkGetAndroidHardwareBufferPropertiesANDROID");
         if(!getProperties){error="Missing vkGetAndroidHardwareBufferPropertiesANDROID";return false;}
+        VkAndroidHardwareBufferFormatPropertiesANDROID ahbFormat{};
+        ahbFormat.sType=VK_STRUCTURE_TYPE_ANDROID_HARDWARE_BUFFER_FORMAT_PROPERTIES_ANDROID;
         VkAndroidHardwareBufferPropertiesANDROID properties{};
         properties.sType=VK_STRUCTURE_TYPE_ANDROID_HARDWARE_BUFFER_PROPERTIES_ANDROID;
+        properties.pNext=&ahbFormat;
         VkResult r=getProperties(device,shared,&properties);
         if(r!=VK_SUCCESS){error="Vulkan AHB buffer properties: "+std::to_string(r);return false;}
+        if(ahbFormat.format!=VK_FORMAT_R16G16B16A16_SFLOAT){
+            error="AHB Vulkan imported FP16 format differs: "+std::to_string(ahbFormat.format);return false;
+        }
+        if(!(ahbFormat.formatFeatures&VK_FORMAT_FEATURE_BLIT_SRC_BIT)){
+            error="AHB Vulkan FP16 imported image lacks BLIT_SRC capability";return false;
+        }
         VkExternalMemoryImageCreateInfo external{};
         external.sType=VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
         external.handleTypes=VK_EXTERNAL_MEMORY_HANDLE_TYPE_ANDROID_HARDWARE_BUFFER_BIT_ANDROID;
@@ -260,8 +269,9 @@ struct HdrBridge {
         info.initialLayout=VK_IMAGE_LAYOUT_UNDEFINED;
         r=vkCreateImage(device,&info,nullptr,&sharedImage);
         if(r!=VK_SUCCESS){error="Vulkan shared FP16 image unsupported: "+std::to_string(r);return false;}
-        VkMemoryRequirements req{};
-        vkGetImageMemoryRequirements(device,sharedImage,&req);
+        // Vulkan prohibits vkGetImageMemoryRequirements for an unbound image
+        // created with external AHardwareBuffer backing. The allocation size
+        // and compatible memory types MUST come from AHB properties instead.
         VkImportAndroidHardwareBufferInfoANDROID import{};
         import.sType=VK_STRUCTURE_TYPE_IMPORT_ANDROID_HARDWARE_BUFFER_INFO_ANDROID;
         import.buffer=shared;
@@ -272,11 +282,10 @@ struct HdrBridge {
         allocation.sType=VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
         allocation.pNext=&dedicated;
         allocation.allocationSize=properties.allocationSize;
-        allocation.memoryTypeIndex=findMemory(properties.memoryTypeBits&
-            req.memoryTypeBits,VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        allocation.memoryTypeIndex=findMemory(properties.memoryTypeBits,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
         if(allocation.memoryTypeIndex==UINT32_MAX)
-           allocation.memoryTypeIndex=findMemory(properties.memoryTypeBits&
-               req.memoryTypeBits,0);
+           allocation.memoryTypeIndex=findMemory(properties.memoryTypeBits,0);
         if(allocation.memoryTypeIndex==UINT32_MAX){error="No Vulkan AHB-compatible memory type";return false;}
         r=vkAllocateMemory(device,&allocation,nullptr,&sharedMemory);
         if(r!=VK_SUCCESS){error="Import AHB memory: "+std::to_string(r);return false;}
