@@ -20,6 +20,17 @@ jobs:
         run: cp source-review/app/src/main/java/com/example/liteplayer/SmbAccess.kt proj/app/src/main/java/com/example/liteplayer/SmbAccess.kt
       - name: Add SMB client library to build
         run: sed -i '/^dependencies {/a\    implementation("eu.agno3.jcifs:jcifs-ng:2.1.10")' proj/app/build.gradle.kts
+      - name: Disable Android debugging in debug variant (preserve playback engine)
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("proj/app/build.gradle.kts")
+          code = path.read_text()
+          assert 'buildTypes {' in code
+          assert 'isDebuggable = false' not in code
+          code = code.replace('buildTypes {', 'buildTypes {\n        getByName("debug") { isDebuggable = false }', 1)
+          path.write_text(code)
+          PY
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -29,7 +40,17 @@ jobs:
           gradle-version: "8.9"
       - run: gradle assembleDebug
         working-directory: proj
+      - name: Verify APK manifest is not debuggable
+        run: |
+          APK=proj/app/build/outputs/apk/debug/app-debug.apk
+          SDK_BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -maxdepth 1 -mindepth 1 -type d | sort -V | tail -n 1)"
+          "$SDK_BUILD_TOOLS/apksigner" verify "$APK"
+          "$SDK_BUILD_TOOLS/aapt" dump xmltree "$APK" AndroidManifest.xml | tee manifest.txt
+          if grep -q 'android:debuggable.*0xffffffff' manifest.txt; then
+            echo "ERROR: debuggable=true"; exit 1
+          fi
+          echo "No debuggable=true manifest flag detected"
       - uses: actions/upload-artifact@v4
         with:
-          name: LitePlayer-apk
+          name: LitePlayer-nondebuggable-apk
           path: proj/app/build/outputs/apk/debug/app-debug.apk
