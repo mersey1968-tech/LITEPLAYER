@@ -53,7 +53,7 @@ class ReferenceScalerView(context: Context) : GLSurfaceView(context), GLSurfaceV
 
     fun setSourceSize(w: Int, h: Int) {
         if (w !in 1..1920 || h !in 1..1080 || (w < 960 && h < 540)) return
-        queueEvent { srcW = w; srcH = h; allocatedW = 0 }
+        queueEvent { srcW = w; srcH = h; surfaceTexture?.setDefaultBufferSize(w,h); allocatedW = 0 }
     }
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
@@ -68,6 +68,7 @@ class ReferenceScalerView(context: Context) : GLSurfaceView(context), GLSurfaceV
             progHorizontal = link(shaderVertex,shaderHorizontal)
             progVertical = link(shaderVertex,shaderVertical)
             surfaceTexture = SurfaceTexture(texVideo).also { st ->
+                st.setDefaultBufferSize(srcW, srcH)
                 st.setOnFrameAvailableListener { pending.set(true); requestRender() }
             }
             val s = Surface(surfaceTexture)
@@ -180,13 +181,19 @@ class ReferenceScalerView(context: Context) : GLSurfaceView(context), GLSurfaceV
             uniform vec2 inputSize;uniform mat4 texMatrix;
             uniform float diagnostic;
             const float PI=3.141592653589793;
-            float kernel(float x){
+            // 8-tap Blackman-windowed sinc; adaptive damping at strong edges.
+            float kernel(float x, float cutoff) {
                 float a=abs(x);
-                if(a>=3.0)return 0.0;
-                float px=PI*0.96*x;
-                float sinc=abs(px)<0.00001?1.0:sin(px)/px;
-                float window=0.42+0.5*cos(PI*a/3.0)+0.08*cos(2.0*PI*a/3.0);
-                return sinc*window;
+                if(a>=4.0) return 0.0;
+                float p=PI*cutoff*x;
+                float sinc=abs(p)<0.00001?1.0:sin(p)/p;
+                float w=0.42+0.5*cos(PI*a/4.0)+0.08*cos(2.0*PI*a/4.0);
+                return cutoff*sinc*w;
+            }
+            float edgeStrength(vec3 l,vec3 c,vec3 r) {
+                vec3 grad=abs(l-r);
+                vec3 curvature=abs(l-2.0*c+r);
+                return clamp(dot(grad+curvature,vec3(0.2126,0.7152,0.0722))*1.5,0.0,1.0);
             }
         """
         private val shaderHorizontal="""#version 300 es
@@ -198,16 +205,22 @@ class ReferenceScalerView(context: Context) : GLSurfaceView(context), GLSurfaceV
             void main(){
                 float pos=uv.x*inputSize.x-0.5;
                 float base=floor(pos),frac=pos-base;
+                vec3 a=sampleVideo(vec2((base+0.5)/inputSize.x,uv.y));
+                vec3 b=sampleVideo(vec2((base+1.5)/inputSize.x,uv.y));
+                vec3 before=sampleVideo(vec2((base-0.5)/inputSize.x,uv.y));
+                vec3 after=sampleVideo(vec2((base+2.5)/inputSize.x,uv.y));
+                float edge=max(edgeStrength(before,a,b),edgeStrength(a,b,after));
+                float cutoff=mix(0.98,0.86,edge);
                 vec3 sum=vec3(0.0);float total=0.0;
-                for(int k=-2;k<=3;k++){
-                    float weight=kernel(float(k)-frac);
+                for(int k=-3;k<=4;k++){
+                    float weight=kernel(float(k)-frac,cutoff);
                     sum+=weight*sampleVideo(vec2((base+float(k)+0.5)/inputSize.x,uv.y));
                     total+=weight;
                 }
-                vec3 outputColor=sum/max(total,0.00001);
-                vec3 a=sampleVideo(vec2((base+0.5)/inputSize.x,uv.y));
-                vec3 b=sampleVideo(vec2((base+1.5)/inputSize.x,uv.y));
-                colorOut=vec4(mix(outputColor,clamp(outputColor,min(a,b),max(a,b)),0.65),1.0);
+                vec3 reconstructed=sum/max(total,0.00001);
+                float containment=mix(0.30,0.92,edge);
+                vec3 outputColor=mix(reconstructed,clamp(reconstructed,min(a,b),max(a,b)),containment);
+                colorOut=vec4(clamp(outputColor,0.0,1.0),1.0);
             }
         """
         private val shaderVertical="""#version 300 es
@@ -217,16 +230,22 @@ class ReferenceScalerView(context: Context) : GLSurfaceView(context), GLSurfaceV
             void main(){
                 float pos=uv.y*inputSize.y-0.5;
                 float base=floor(pos),frac=pos-base;
+                vec3 a=texture(video,vec2(uv.x,(base+0.5)/inputSize.y)).rgb;
+                vec3 b=texture(video,vec2(uv.x,(base+1.5)/inputSize.y)).rgb;
+                vec3 before=texture(video,vec2(uv.x,(base-0.5)/inputSize.y)).rgb;
+                vec3 after=texture(video,vec2(uv.x,(base+2.5)/inputSize.y)).rgb;
+                float edge=max(edgeStrength(before,a,b),edgeStrength(a,b,after));
+                float cutoff=mix(0.98,0.86,edge);
                 vec3 sum=vec3(0.0);float total=0.0;
-                for(int k=-2;k<=3;k++){
-                    float weight=kernel(float(k)-frac);
+                for(int k=-3;k<=4;k++){
+                    float weight=kernel(float(k)-frac,cutoff);
                     sum+=weight*texture(video,vec2(uv.x,(base+float(k)+0.5)/inputSize.y)).rgb;
                     total+=weight;
                 }
-                vec3 outputColor=sum/max(total,0.00001);
-                vec3 a=texture(video,vec2(uv.x,(base+0.5)/inputSize.y)).rgb;
-                vec3 b=texture(video,vec2(uv.x,(base+1.5)/inputSize.y)).rgb;
-                colorOut=vec4(mix(outputColor,clamp(outputColor,min(a,b),max(a,b)),0.65),1.0);
+                vec3 reconstructed=sum/max(total,0.00001);
+                float containment=mix(0.30,0.92,edge);
+                vec3 outputColor=mix(reconstructed,clamp(reconstructed,min(a,b),max(a,b)),containment);
+                colorOut=vec4(clamp(outputColor,0.0,1.0),1.0);
                 // Proof that the actual final framebuffer is generated by Reflite.
                 // Only the explicit DIAGNOSTIC menu option can display this marker.
                 if (diagnostic > 0.5 && uv.x < 0.20 && uv.y > 0.91)
