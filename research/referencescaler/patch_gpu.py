@@ -164,6 +164,19 @@ replace_once(
                 }
                 parent.addView(hdrView, index + 2,
                     FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+                // Display an actionable diagnostic after 7 seconds even when
+                // the HDR surface is black. The native pipeline cannot infer
+                // from a successful present whether the decoded image appeared.
+                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                    if (vulkanHdrView === hdrView && scalerView === gpu &&
+                        referenceVulkanEnabled && !isFinishing) {
+                        AlertDialog.Builder(this)
+                            .setTitle("Reflite HDR10 video diagnostics")
+                            .setMessage(hdrView.hdrSnapshot() + "\\n\\n" + gpu.hdrSnapshot())
+                            .setPositiveButton("Close", null)
+                            .show()
+                    }
+                }, 7000L)
             }
         }
     }
