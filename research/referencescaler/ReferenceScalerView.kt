@@ -52,6 +52,7 @@ class ReferenceScalerView(context: Context, private val hdrRequested: Boolean = 
     private var sharedFbo = 0
     private var sharedW = 0
     private var sharedH = 0
+    private var hdrDiagnosticFrameCount = 0
     fun attachVulkan(bridge: VulkanHdrBridgeView?) {
         vulkanBridge = bridge
     }
@@ -216,10 +217,20 @@ class ReferenceScalerView(context: Context, private val hdrRequested: Boolean = 
                     sharedH = captureH
                 }
                 if (sharedFbo != 0) {
-                    neuralPipeline?.render(texVideo, transform, workW, workH,
-                        captureW, captureH, false, true, sharedFbo)
-                    // One shared buffer requires GPU completion before Vulkan
-                    // reads it. No readback, pixel upload, or CPU conversion.
+                    if (hdrDiagnosticFrameCount < 48) {
+                        // Distinctive GPU-only HDR diagnostic for approximately
+                        // the first 48 frames. If blue appears but movie stays
+                        // black, Vulkan import/presentation works and the problem
+                        // is in FSRCNNX composition. No CPU readback.
+                        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, sharedFbo)
+                        GLES30.glViewport(0, 0, captureW, captureH)
+                        GLES30.glClearColor(0.13f, 0.42f, 0.67f, 1.0f)
+                        GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
+                        hdrDiagnosticFrameCount++
+                    } else {
+                        neuralPipeline?.render(texVideo, transform, workW, workH,
+                            captureW, captureH, false, true, sharedFbo)
+                    }
                     GLES30.glFinish()
                     bridge.presentShared()
                 }
