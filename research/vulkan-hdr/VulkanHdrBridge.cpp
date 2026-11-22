@@ -1,6 +1,12 @@
 #define VK_USE_PLATFORM_ANDROID_KHR 1
 #include <vulkan/vulkan.h>
 #include <android/native_window_jni.h>
+#include <android/hardware_buffer.h>
+#include <android/hardware_buffer_jni.h>
+#include <EGL/egl.h>
+#include <EGL/eglext.h>
+#include <GLES3/gl3.h>
+#include <GLES2/gl2ext.h>
 #include <jni.h>
 #include <vector>
 #include <mutex>
@@ -25,6 +31,14 @@ struct HdrBridge {
     VkCommandPool pool=VK_NULL_HANDLE;
     VkCommandBuffer cmd=VK_NULL_HANDLE;
     VkSemaphore acquire=VK_NULL_HANDLE,render=VK_NULL_HANDLE;
+    AHardwareBuffer* shared=nullptr;
+    EGLDisplay eglDisplay=EGL_NO_DISPLAY;
+    EGLImageKHR eglImage=EGL_NO_IMAGE_KHR;
+    GLuint glTexture=0,glFramebuffer=0;
+    VkImage sharedImage=VK_NULL_HANDLE;
+    VkDeviceMemory sharedMemory=VK_NULL_HANDLE;
+    bool zeroCopySupported=false;
+    uint32_t sharedW=0,sharedH=0;
     VkImage source=VK_NULL_HANDLE;
     VkDeviceMemory sourceMemory=VK_NULL_HANDLE;
     VkBuffer upload=VK_NULL_HANDLE;
@@ -37,7 +51,18 @@ struct HdrBridge {
     std::mutex guard;
     bool ready=false;
     std::string error;
+    // The EGL texture/FBO must be deleted on the owning GL thread.
+    void releaseSharedVulkan(){
+        if(device){vkDeviceWaitIdle(device);
+            if(sharedImage)vkDestroyImage(device,sharedImage,nullptr);
+            if(sharedMemory)vkFreeMemory(device,sharedMemory,nullptr);
+        }
+        sharedImage=VK_NULL_HANDLE;sharedMemory=VK_NULL_HANDLE;
+        if(shared)AHardwareBuffer_release(shared);
+        shared=nullptr;sharedW=0;sharedH=0;
+    }
     void destroy(){
+        releaseSharedVulkan();
         ready=false;
         if(device){
             vkDeviceWaitIdle(device);
@@ -56,6 +81,7 @@ struct HdrBridge {
         if(instance)vkDestroyInstance(instance,nullptr);
         if(window)ANativeWindow_release(window);
         instance=VK_NULL_HANDLE;device=VK_NULL_HANDLE;surface=VK_NULL_HANDLE;
+        zeroCopySupported=false;
         window=nullptr;swapchain=VK_NULL_HANDLE;pool=VK_NULL_HANDLE;
         upload=VK_NULL_HANDLE;uploadMemory=VK_NULL_HANDLE;uploadMapped=nullptr;
         source=VK_NULL_HANDLE;sourceMemory=VK_NULL_HANDLE;
@@ -140,10 +166,25 @@ struct HdrBridge {
         float priority=1.f;
         VkDeviceQueueCreateInfo qi{};qi.sType=VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
         qi.queueFamilyIndex=queueFamily;qi.queueCount=1;qi.pQueuePriorities=&priority;
-        const char* swapExt=VK_KHR_SWAPCHAIN_EXTENSION_NAME;
+
+        uint32_t extensionCount=0;
+        vkEnumerateDeviceExtensionProperties(gpu,nullptr,&extensionCount,nullptr);
+        std::vector<VkExtensionProperties> properties(extensionCount);
+        vkEnumerateDeviceExtensionProperties(gpu,nullptr,&extensionCount,properties.data());
+        bool ahb=false;
+        for(auto& e:properties) if(strcmp(e.extensionName,
+            VK_ANDROID_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER_EXTENSION_NAME)==0) ahb=true;
+        zeroCopySupported=ahb;
+        if(!ahb){error="Shield Vulkan driver does not expose Android hardware-buffer external memory";return false;}
+        const char* enabledExts[]={
+            VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+            VK_ANDROID_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER_EXTENSION_NAME,
+            VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME,
+            VK_KHR_SAMPLER_YCBCR_CONVERSION_EXTENSION_NAME
+        };
         VkDeviceCreateInfo di{};di.sType=VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
         di.queueCreateInfoCount=1;di.pQueueCreateInfos=&qi;
-        di.enabledExtensionCount=1;di.ppEnabledExtensionNames=&swapExt;
+        di.enabledExtensionCount=4;di.ppEnabledExtensionNames=enabledExts;
         if(vkCreateDevice(gpu,&di,nullptr,&device)!=VK_SUCCESS){error="Vulkan device";return false;}
         vkGetDeviceQueue(device,queueFamily,0,&queue);
         extent=caps.currentExtent;
@@ -182,6 +223,122 @@ struct HdrBridge {
         vkCreateSemaphore(device,&sem,nullptr,&acquire);vkCreateSemaphore(device,&sem,nullptr,&render);
         prepareLut();
         ready=true;return true;
+    }
+    bool makeShared(uint32_t width,uint32_t height){
+        if(!ready||!zeroCopySupported){error="Zero-copy Vulkan external buffer not available";return false;}
+        if(shared && sharedW==width && sharedH==height && sharedImage)return true;
+        releaseSharedVulkan();
+        AHardwareBuffer_Desc desc{};
+        desc.width=width;desc.height=height;desc.layers=1;
+        desc.format=AHARDWAREBUFFER_FORMAT_R16G16B16A16_FLOAT;
+        desc.usage=AHARDWAREBUFFER_USAGE_GPU_COLOR_OUTPUT|
+            AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE;
+        if(AHardwareBuffer_allocate(&desc,&shared)!=0){
+            error="Shield cannot allocate FP16 shared GPU render buffer";return false;
+        }
+        auto getProperties=(PFN_vkGetAndroidHardwareBufferPropertiesANDROID)
+           vkGetDeviceProcAddr(device,"vkGetAndroidHardwareBufferPropertiesANDROID");
+        if(!getProperties){error="Missing vkGetAndroidHardwareBufferPropertiesANDROID";return false;}
+        VkAndroidHardwareBufferPropertiesANDROID properties{};
+        properties.sType=VK_STRUCTURE_TYPE_ANDROID_HARDWARE_BUFFER_PROPERTIES_ANDROID;
+        VkResult r=getProperties(device,shared,&properties);
+        if(r!=VK_SUCCESS){error="Vulkan AHB buffer properties: "+std::to_string(r);return false;}
+        VkExternalMemoryImageCreateInfo external{};
+        external.sType=VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
+        external.handleTypes=VK_EXTERNAL_MEMORY_HANDLE_TYPE_ANDROID_HARDWARE_BUFFER_BIT_ANDROID;
+        VkImageCreateInfo info{};
+        info.sType=VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        info.pNext=&external;
+        info.imageType=VK_IMAGE_TYPE_2D;
+        info.format=VK_FORMAT_R16G16B16A16_SFLOAT;
+        info.extent={width,height,1};info.mipLevels=1;info.arrayLayers=1;
+        info.samples=VK_SAMPLE_COUNT_1_BIT;info.tiling=VK_IMAGE_TILING_OPTIMAL;
+        info.usage=VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+        info.sharingMode=VK_SHARING_MODE_EXCLUSIVE;
+        info.initialLayout=VK_IMAGE_LAYOUT_UNDEFINED;
+        r=vkCreateImage(device,&info,nullptr,&sharedImage);
+        if(r!=VK_SUCCESS){error="Vulkan shared FP16 image unsupported: "+std::to_string(r);return false;}
+        VkMemoryRequirements req{};
+        vkGetImageMemoryRequirements(device,sharedImage,&req);
+        VkImportAndroidHardwareBufferInfoANDROID import{};
+        import.sType=VK_STRUCTURE_TYPE_IMPORT_ANDROID_HARDWARE_BUFFER_INFO_ANDROID;
+        import.buffer=shared;
+        VkMemoryDedicatedAllocateInfo dedicated{};
+        dedicated.sType=VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO;
+        dedicated.pNext=&import;dedicated.image=sharedImage;
+        VkMemoryAllocateInfo allocation{};
+        allocation.sType=VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        allocation.pNext=&dedicated;
+        allocation.allocationSize=properties.allocationSize;
+        allocation.memoryTypeIndex=findMemory(properties.memoryTypeBits&
+            req.memoryTypeBits,VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        if(allocation.memoryTypeIndex==UINT32_MAX)
+           allocation.memoryTypeIndex=findMemory(properties.memoryTypeBits&
+               req.memoryTypeBits,0);
+        if(allocation.memoryTypeIndex==UINT32_MAX){error="No Vulkan AHB-compatible memory type";return false;}
+        r=vkAllocateMemory(device,&allocation,nullptr,&sharedMemory);
+        if(r!=VK_SUCCESS){error="Import AHB memory: "+std::to_string(r);return false;}
+        r=vkBindImageMemory(device,sharedImage,sharedMemory,0);
+        if(r!=VK_SUCCESS){error="Bind imported AHB image: "+std::to_string(r);return false;}
+        sharedW=width;sharedH=height;return true;
+    }
+    bool presentShared(){
+        if(!ready||!sharedImage)return false;
+        uint32_t idx=0;
+        VkResult r=vkAcquireNextImageKHR(device,swapchain,12000000ULL,acquire,VK_NULL_HANDLE,&idx);
+        if(r==VK_TIMEOUT||r==VK_NOT_READY)return true;
+        if(r!=VK_SUCCESS&&r!=VK_SUBOPTIMAL_KHR){error="Vulkan HDR acquire: "+std::to_string(r);return false;}
+        vkResetCommandPool(device,pool,0);
+        VkCommandBufferBeginInfo begin{};begin.sType=VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        vkBeginCommandBuffer(cmd,&begin);
+        auto barrier=[&](VkImage img,VkImageLayout from,VkImageLayout to,
+            VkAccessFlags src,VkAccessFlags dst,VkPipelineStageFlags ss,VkPipelineStageFlags ds){
+            VkImageMemoryBarrier b{};b.sType=VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+            b.oldLayout=from;b.newLayout=to;b.srcAccessMask=src;b.dstAccessMask=dst;
+            b.srcQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;b.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;
+            b.image=img;b.subresourceRange.aspectMask=VK_IMAGE_ASPECT_COLOR_BIT;
+            b.subresourceRange.levelCount=1;b.subresourceRange.layerCount=1;
+            vkCmdPipelineBarrier(cmd,ss,ds,0,0,nullptr,0,nullptr,1,&b);
+        };
+        // OpenGL has flushed and finished writing the AHB before the call.
+        barrier(sharedImage,VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            0,VK_ACCESS_TRANSFER_READ_BIT,
+            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,VK_PIPELINE_STAGE_TRANSFER_BIT);
+        barrier(swapImages[idx],VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            0,VK_ACCESS_TRANSFER_WRITE_BIT,
+            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,VK_PIPELINE_STAGE_TRANSFER_BIT);
+        VkImageBlit blit{};
+        blit.srcSubresource.aspectMask=VK_IMAGE_ASPECT_COLOR_BIT;
+        blit.srcSubresource.layerCount=1;
+        blit.srcOffsets[1]={int32_t(sharedW),int32_t(sharedH),1};
+        blit.dstSubresource.aspectMask=VK_IMAGE_ASPECT_COLOR_BIT;
+        blit.dstSubresource.layerCount=1;
+        blit.dstOffsets[1]={int32_t(extent.width),int32_t(extent.height),1};
+        vkCmdBlitImage(cmd,sharedImage,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            swapImages[idx],VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,1,&blit,VK_FILTER_LINEAR);
+        barrier(swapImages[idx],VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+            VK_ACCESS_TRANSFER_WRITE_BIT,0,
+            VK_PIPELINE_STAGE_TRANSFER_BIT,VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+        vkEndCommandBuffer(cmd);
+        VkPipelineStageFlags stage=VK_PIPELINE_STAGE_TRANSFER_BIT;
+        VkSubmitInfo submit{};submit.sType=VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submit.waitSemaphoreCount=1;submit.pWaitSemaphores=&acquire;
+        submit.pWaitDstStageMask=&stage;
+        submit.commandBufferCount=1;submit.pCommandBuffers=&cmd;
+        submit.signalSemaphoreCount=1;submit.pSignalSemaphores=&render;
+        r=vkQueueSubmit(queue,1,&submit,VK_NULL_HANDLE);
+        if(r!=VK_SUCCESS){error="Vulkan HDR submit: "+std::to_string(r);return false;}
+        VkPresentInfoKHR present{};present.sType=VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+        present.waitSemaphoreCount=1;present.pWaitSemaphores=&render;
+        present.swapchainCount=1;present.pSwapchains=&swapchain;present.pImageIndices=&idx;
+        r=vkQueuePresentKHR(queue,&present);
+        // Single shared buffer requires completion before next GL write.
+        // No CPU pixel conversion, pixel readback or video encoding.
+        vkQueueWaitIdle(queue);
+        if(r!=VK_SUCCESS&&r!=VK_SUBOPTIMAL_KHR){
+            error="Vulkan HDR present: "+std::to_string(r);return false;
+        }
+        return true;
     }
     bool resize(uint32_t width,uint32_t height){
         if(width==w&&height==h)return true;
@@ -321,4 +478,75 @@ extern "C" JNIEXPORT void JNICALL
 Java_com_example_liteplayer_VulkanHdrBridgeView_nativeStop(JNIEnv*,jobject){
     std::lock_guard<std::mutex> lock(bridge.guard);
     bridge.destroy();
+}
+
+static std::mutex interopGlMutex;
+// All GL/EGL calls are made on ReferenceScalerView's GL thread.
+extern "C" JNIEXPORT jint JNICALL
+Java_com_example_liteplayer_VulkanHdrBridgeView_nativePrepareShared(JNIEnv* env,jobject,jint width,jint height){
+    std::lock_guard<std::mutex> lock(bridge.guard);
+    if(!bridge.ready||width<=0||height<=0)return 0;
+    // The surface is normally allocated once. When changing resolution the
+    // caller must release the old GL attachment first.
+    if(!bridge.makeShared((uint32_t)width,(uint32_t)height)) {
+        LOG("AHB zero-copy: %s",bridge.error.c_str());return 0;
+    }
+    auto getNative=(PFNEGLGETNATIVECLIENTBUFFERANDROIDPROC)
+        eglGetProcAddress("eglGetNativeClientBufferANDROID");
+    auto createImage=(PFNEGLCREATEIMAGEKHRPROC)eglGetProcAddress("eglCreateImageKHR");
+    auto targetImage=(PFNGLEGLIMAGETARGETTEXTURE2DOESPROC)
+        eglGetProcAddress("glEGLImageTargetTexture2DOES");
+    if(!getNative||!createImage||!targetImage){
+        bridge.error="Missing EGL native AHardwareBuffer image interop";
+        return 0;
+    }
+    bridge.eglDisplay=eglGetCurrentDisplay();
+    EGLClientBuffer client=getNative(bridge.shared);
+    const EGLint attrs[]={EGL_IMAGE_PRESERVED_KHR,EGL_TRUE,EGL_NONE};
+    bridge.eglImage=createImage(bridge.eglDisplay,EGL_NO_CONTEXT,
+        EGL_NATIVE_BUFFER_ANDROID,client,attrs);
+    if(bridge.eglImage==EGL_NO_IMAGE_KHR){
+        bridge.error="EGL cannot import the shared FP16 AHardwareBuffer";return 0;
+    }
+    glGenTextures(1,&bridge.glTexture);
+    glBindTexture(GL_TEXTURE_2D,bridge.glTexture);
+    targetImage(GL_TEXTURE_2D,bridge.eglImage);
+    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
+    glGenFramebuffers(1,&bridge.glFramebuffer);
+    glBindFramebuffer(GL_FRAMEBUFFER,bridge.glFramebuffer);
+    glFramebufferTexture2D(GL_FRAMEBUFFER,GL_COLOR_ATTACHMENT0,GL_TEXTURE_2D,
+        bridge.glTexture,0);
+    GLenum status=glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    glBindFramebuffer(GL_FRAMEBUFFER,0);
+    if(status!=GL_FRAMEBUFFER_COMPLETE){
+        bridge.error="EGL FP16 shared render framebuffer incomplete: "+
+            std::to_string(status);return 0;
+    }
+    return (jint)bridge.glFramebuffer;
+}
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_example_liteplayer_VulkanHdrBridgeView_nativePresentShared(JNIEnv*,jobject){
+    std::lock_guard<std::mutex> lock(bridge.guard);
+    if(!bridge.ready||!bridge.sharedImage)return JNI_FALSE;
+    bool success=bridge.presentShared();
+    if(!success)LOG("AHB present failed: %s",bridge.error.c_str());
+    return success?JNI_TRUE:JNI_FALSE;
+}
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_example_liteplayer_VulkanHdrBridgeView_nativeSharedError(JNIEnv* env,jobject){
+    std::lock_guard<std::mutex> lock(bridge.guard);
+    return env->NewStringUTF(bridge.error.c_str());
+}
+extern "C" JNIEXPORT void JNICALL
+Java_com_example_liteplayer_VulkanHdrBridgeView_nativeReleaseSharedGL(JNIEnv*,jobject){
+    std::lock_guard<std::mutex> lock(bridge.guard);
+    glBindFramebuffer(GL_FRAMEBUFFER,0);
+    if(bridge.glFramebuffer)glDeleteFramebuffers(1,&bridge.glFramebuffer);
+    if(bridge.glTexture)glDeleteTextures(1,&bridge.glTexture);
+    auto destroyImage=(PFNEGLDESTROYIMAGEKHRPROC)eglGetProcAddress("eglDestroyImageKHR");
+    if(destroyImage&&bridge.eglImage!=EGL_NO_IMAGE_KHR)
+        destroyImage(bridge.eglDisplay,bridge.eglImage);
+    bridge.glFramebuffer=0;bridge.glTexture=0;bridge.eglImage=EGL_NO_IMAGE_KHR;
+    bridge.eglDisplay=EGL_NO_DISPLAY;
 }
