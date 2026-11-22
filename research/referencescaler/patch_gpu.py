@@ -26,6 +26,8 @@ replace_once(
     private var referenceScalerEnabled = false
     private var referenceDiagnosticEnabled = false
     private var referenceHdrEnabled = false
+    private var referenceVulkanEnabled = false
+    private var vulkanHdrView: VulkanHdrBridgeView? = null
     private var scalerView: ReferenceScalerView? = null
     private var currentVideoFormat: Format? = null
 
@@ -52,24 +54,27 @@ replace_once(
             "ReferenceScaler GPU (normal)",
             "ReferenceScaler GPU DIAGNOSTIC (magenta corner)",
             "FSRCNNX SDR to HDR10 (experimental)",
-            "Vulkan HDR10 output test (no video)"
+            "Vulkan HDR10 output test (no video)",
+            "FSRCNNX Vulkan SDR to HDR10 (live experimental)"
         )
         AlertDialog.Builder(this)
             .setTitle("Reflite video rendering")
-            .setSingleChoiceItems(choices, if (!referenceScalerEnabled) 0 else if (referenceHdrEnabled) 3 else if (referenceDiagnosticEnabled) 2 else 1) { dialog, which ->
+            .setSingleChoiceItems(choices, if (!referenceScalerEnabled) 0 else if (referenceVulkanEnabled) 5 else if (referenceHdrEnabled) 3 else if (referenceDiagnosticEnabled) 2 else 1) { dialog, which ->
                 if (which == 4) {
                     dialog.dismiss()
                     startActivity(android.content.Intent(this, VulkanHdrProbeActivity::class.java))
                     return@setSingleChoiceItems
                 }
                 val wantHdr = which == 3
+                val wantVulkan = which == 5
                 // EGL colours cannot be changed on a running GLSurfaceView.
                 // Recreate only when toggling between HDR and SDR surfaces.
-                if (referenceHdrEnabled != wantHdr && scalerView != null) {
+                if ((referenceHdrEnabled != wantHdr || referenceVulkanEnabled != wantVulkan) && scalerView != null) {
                     referenceScalerEnabled = false
                     applyRefliteScaler()
                 }
                 referenceHdrEnabled = wantHdr
+                referenceVulkanEnabled = wantVulkan
                 referenceScalerEnabled = which != 0
                 referenceDiagnosticEnabled = which == 2
                 if (referenceScalerEnabled && !allowedForReferenceScaler(resolvedScalerFormat())) {
@@ -89,6 +94,9 @@ replace_once(
         val activePlayer = player
         if (!referenceScalerEnabled || !allowedForReferenceScaler(resolvedScalerFormat()) || activePlayer == null) {
             if (scalerView != null) {
+                val hdrView = vulkanHdrView
+                vulkanHdrView = null
+                (hdrView?.parent as? ViewGroup)?.removeView(hdrView)
                 // Restore the established decoder target before releasing GPU resources.
                 (playerView.videoSurfaceView as? SurfaceView)?.let { activePlayer?.setVideoSurfaceView(it) }
                 val old = scalerView
@@ -149,6 +157,21 @@ replace_once(
             val index = parent.indexOfChild(playerView)
             parent.addView(gpu, index + 1,
                 FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+            if (referenceVulkanEnabled) {
+                val hdrView = VulkanHdrBridgeView(this)
+                vulkanHdrView = hdrView
+                gpu.attachVulkan(hdrView)
+                hdrView.onFailure = { error ->
+                    if (vulkanHdrView === hdrView) {
+                        referenceVulkanEnabled = false
+                        referenceScalerEnabled = false
+                        applyRefliteScaler()
+                        Toast.makeText(this, "Vulkan HDR unavailable: " + error, Toast.LENGTH_LONG).show()
+                    }
+                }
+                parent.addView(hdrView, index + 2,
+                    FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+            }
         }
     }
 """
