@@ -54,12 +54,28 @@ internal class FsrcnnxPipeline(raw: String) {
             precision highp float;
             uniform sampler2D uNeural;uniform samplerExternalOES uVideo;
             uniform mat4 uMatrix;uniform float uDiagnostic;
+            uniform float uHdr;
             in vec2 uv;out vec4 outColor;
+            // BT.709 linear RGB to BT.2020 linear RGB, then ST 2084 (PQ).
+            vec3 sdrToHdr10(vec3 rgb) {
+                vec3 linear709=pow(clamp(rgb,0.,1.),vec3(2.4));
+                mat3 to2020=mat3(
+                    0.627404,0.069097,0.016391,
+                    0.329282,0.919540,0.088013,
+                    0.043314,0.011362,0.895595);
+                vec3 l2020=max(to2020*linear709,vec3(0.));
+                // ITU-R BT.2408: SDR reference white mapped to 203 nits.
+                vec3 nits=l2020*203.0;
+                vec3 p=pow(clamp(nits/10000.0,0.,1.),vec3(2610.0/16384.0));
+                return pow((vec3(3424.0/4096.0)+vec3(2413.0/128.0)*p)/
+                    (vec3(1.)+vec3(2392.0/128.0)*p),vec3(2523.0/32.0));
+            }
             void main(){
                 float y=texture(uNeural,uv).r;
                 vec3 rgb=texture(uVideo,(uMatrix*vec4(uv,0.,1.)).xy).rgb;
                 float orig=dot(rgb,vec3(0.2126,0.7152,0.0722));
-                outColor=vec4(clamp(rgb+vec3(y-orig),0.,1.),1.);
+                vec3 reconstructed=clamp(rgb+vec3(y-orig),0.,1.);
+                outColor=vec4(uHdr>0.5?sdrToHdr10(reconstructed):reconstructed,1.);
                 if(uDiagnostic>0.5 && uv.x<0.2 && uv.y>0.91)
                     outColor=vec4(1.,0.,1.,1.);
             }
@@ -106,7 +122,7 @@ internal class FsrcnnxPipeline(raw: String) {
         releaseTargets();allocatedW=w;allocatedH=h
         stages.forEach { targets.add(allocate(if(it.scaled)2*w else w,if(it.scaled)2*h else h)) }
     }
-    fun render(video:Int,matrix:FloatArray,w:Int,h:Int,outW:Int,outH:Int,diagnostic:Boolean) {
+    fun render(video:Int,matrix:FloatArray,w:Int,h:Int,outW:Int,outH:Int,diagnostic:Boolean,hdr:Boolean=false) {
         ensureSize(w,h);val named=mutableMapOf<String,Int>()
         stages.forEachIndexed { idx,stage ->
             val t=targets[idx]
@@ -134,6 +150,7 @@ internal class FsrcnnxPipeline(raw: String) {
         GLES30.glUniform1i(GLES30.glGetUniformLocation(composite,"uVideo"),1)
         GLES30.glUniformMatrix4fv(GLES30.glGetUniformLocation(composite,"uMatrix"),1,false,matrix,0)
         GLES30.glUniform1f(GLES30.glGetUniformLocation(composite,"uDiagnostic"),if(diagnostic)1f else 0f)
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(composite,"uHdr"),if(hdr)1f else 0f)
         draw(composite)
         check(GLES30.glGetError()==GLES30.GL_NO_ERROR){"FSRCNNX GPU render failed"}
     }
