@@ -34,7 +34,10 @@ replace_once(
     }
 
     private fun allowedForReferenceScaler(f: Format?): Boolean {
-        if (f == null || f.width < 1 || f.width > 1920 || f.height !in 540..1080) return false
+        if (f == null || f.width > 1920 || f.height > 1080 || f.width <= 0 || f.height <= 0) return false
+        // Letterboxed/cropped movie files often store 1920x800, 1280x534 etc.
+        // Classify by stored frame dimensions, not height alone.
+        if (f.width < 960 && f.height < 540) return false
         if (f.sampleMimeType == MimeTypes.VIDEO_DOLBY_VISION) return false
         val transfer = f.colorInfo?.colorTransfer
         if (transfer == C.COLOR_TRANSFER_ST2084 || transfer == C.COLOR_TRANSFER_HLG) return false
