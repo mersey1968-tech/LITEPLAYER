@@ -64,8 +64,11 @@ internal class FsrcnnxPipeline(raw: String) {
                     0.329282,0.919540,0.088013,
                     0.043314,0.011362,0.895595);
                 vec3 l2020=max(to2020*linear709,vec3(0.));
-                // ITU-R BT.2408: SDR reference white mapped to 203 nits.
-                vec3 nits=l2020*203.0;
+                // User-selected 1000 nit peak. Keep diffuse SDR levels
+                // near 203 nits; expand only the brightest encoded highlights.
+                // SDR contains no recoverable specular highlight information.
+                vec3 knee=clamp((l2020-vec3(0.65))/0.35,0.,1.);
+                vec3 nits=l2020*203.0+vec3(797.0)*knee*knee*knee;
                 vec3 p=pow(clamp(nits/10000.0,0.,1.),vec3(2610.0/16384.0));
                 return pow((vec3(3424.0/4096.0)+vec3(2413.0/128.0)*p)/
                     (vec3(1.)+vec3(2392.0/128.0)*p),vec3(2523.0/32.0));
