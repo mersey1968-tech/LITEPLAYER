@@ -1,0 +1,42 @@
+name: LNS30 Foobar2000 DSP prototype
+on:
+  push:
+    branches: [lns30-foobar-prototype]
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      - name: Fetch October 2026 foobar2000 SDK
+        shell: pwsh
+        run: |
+          git clone --depth 1 --branch SDK-2026-10-01 https://github.com/reupen/foobar2000-sdk-unmodified.git sdk
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Prepare isolated LNS30 DSP component
+        shell: pwsh
+        run: |
+          python lns30/foobar/prepare_sdk.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build x64 component from official SDK solution
+        shell: pwsh
+        run: |
+          msbuild sdk/foobar2000/foo_sample/foo_sample.sln /m /p:Configuration=Release /p:Platform=x64 /p:TargetName=foo_lns30 /v:minimal
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Package foobar2000 component
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          $dll = Get-ChildItem -Path sdk -Recurse -Filter foo_lns30.dll | Where-Object { $_.FullName -match '(Release|x64)' } | Select-Object -First 1
+          if (-not $dll) { throw "foo_lns30.dll not found" }
+          Copy-Item $dll.FullName dist/foo_lns30.dll
+          Compress-Archive -Path dist/foo_lns30.dll -DestinationPath dist/foo_lns30.zip -Force
+          Rename-Item dist/foo_lns30.zip foo_lns30.fb2k-component
+          "Experimental prototype. Requires foobar2000 x64. DSP MUST be after the high-rate resampler. Not tested in the foobar2000 host. Not a verified LNS15 competitor." | Out-File dist/README.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LNS30-Foobar2000-Experimental-x64
+          path: dist/
