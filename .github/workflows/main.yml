@@ -29,7 +29,13 @@ jobs:
           assert 'buildTypes {' in code
           assert 'isDebuggable = false' not in code
           code = code.replace('buildTypes {', 'buildTypes {\n        getByName("debug") { isDebuggable = false }', 1)
+          assert 'applicationId = "com.example.liteplayer"' in code
+          code = code.replace('applicationId = "com.example.liteplayer"', 'applicationId = "com.example.liteplayer.rc"', 1)
           path.write_text(code)
+          manifest = Path("proj/app/src/main/AndroidManifest.xml")
+          m = manifest.read_text()
+          m = m.replace('android:label="LitePlayer"', 'android:label="LitePlayer RC"')
+          manifest.write_text(m)
           PY
       - uses: actions/setup-java@v5
         with:
@@ -52,5 +58,5 @@ jobs:
           echo "No debuggable=true manifest flag detected"
       - uses: actions/upload-artifact@v4
         with:
-          name: LitePlayer-nondebuggable-apk
+          name: LitePlayer-RC-nondebuggable-apk
           path: proj/app/build/outputs/apk/debug/app-debug.apk
