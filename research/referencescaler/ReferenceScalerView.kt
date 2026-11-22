@@ -53,6 +53,10 @@ class ReferenceScalerView(context: Context, private val hdrRequested: Boolean = 
     private var sharedW = 0
     private var sharedH = 0
     private var hdrDiagnosticFrameCount = 0
+    // The Vulkan pipeline currently has a single external buffer and per-frame
+    // blocking GPU fences. Throttle THIS DIAGNOSTIC ONLY to protect audio.
+    private var lastHdrSubmitNs = 0L
+    private val hdrDiagnosticIntervalNs = 150_000_000L
     @Volatile private var decoderFrameCount = 0
     @Volatile private var glDrawCount = 0
     @Volatile private var hdrPresentAttempts = 0
@@ -216,6 +220,13 @@ class ReferenceScalerView(context: Context, private val hdrRequested: Boolean = 
             val start = if (sampleGpu) System.nanoTime() else 0L
             val bridge = vulkanBridge?.takeIf { it.isReady() }
             if (bridge != null && newFrame) {
+                // Do not let 24-60 Hz video force the experimental blocking
+                // Vulkan path to stall the Shield audio renderer each frame.
+                // This 6-7 fps limit is temporary and diagnostic, NOT a
+                // performance fix or a release playback mode.
+                val nowNs = System.nanoTime()
+                if (nowNs - lastHdrSubmitNs < hdrDiagnosticIntervalNs) return
+                lastHdrSubmitNs = nowNs
                 // True GPU-to-GPU path: FSRCNNX writes BT2020/PQ FP16 directly
                 // to an EGLImage backed by an Android hardware buffer. Vulkan
                 // imports the same allocation; no glReadPixels or CPU transfer.
@@ -230,9 +241,9 @@ class ReferenceScalerView(context: Context, private val hdrRequested: Boolean = 
                     sharedH = captureH
                 }
                 if (sharedFbo != 0) {
-                    if (hdrDiagnosticFrameCount < 150) {
+                    if (hdrDiagnosticFrameCount < 48) {
                         // Distinctive GPU-only HDR diagnostic for approximately
-                        // the first 150 frames. If blue appears but movie stays
+                        // the first 48 frames. If blue appears but movie stays
                         // black, Vulkan import/presentation works and the problem
                         // is in FSRCNNX composition. No CPU readback.
                         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, sharedFbo)
