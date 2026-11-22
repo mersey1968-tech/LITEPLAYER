@@ -10,11 +10,14 @@ import android.view.Surface
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.concurrent.atomic.AtomicBoolean
+import javax.microedition.khronos.egl.EGL10
+import javax.microedition.khronos.egl.EGLDisplay
+import javax.microedition.khronos.egl.EGLSurface
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 
 /** Experimental trained neural SDR renderer. Default playback never uses this. */
-class ReferenceScalerView(context: Context) : GLSurfaceView(context), GLSurfaceView.Renderer {
+class ReferenceScalerView(context: Context, private val hdrRequested: Boolean = false) : GLSurfaceView(context), GLSurfaceView.Renderer {
     @Volatile var decoderSurface: Surface? = null
         private set
     var onSurfaceReady: ((Surface) -> Unit)? = null
@@ -23,6 +26,8 @@ class ReferenceScalerView(context: Context) : GLSurfaceView(context), GLSurfaceV
     private var texIntermediate = 0
     private var framebuffer = 0
     private var neuralPipeline: FsrcnnxPipeline? = null
+    @Volatile private var hdrSurfaceActive = false
+    var onHdrUnavailable: (() -> Unit)? = null
     private var surfaceTexture: SurfaceTexture? = null
     private val pending = AtomicBoolean(false)
     private val transform = FloatArray(16)
@@ -50,6 +55,33 @@ class ReferenceScalerView(context: Context) : GLSurfaceView(context), GLSurfaceV
 
     init {
         setEGLContextClientVersion(3)
+        if (hdrRequested) {
+            // Request true 10-bit EGL buffers, not an SDR framebuffer with
+            // brightened colours. Only mark HDR active if PQ EGL creation works.
+            setEGLConfigChooser(10,10,10,2,0,0)
+            setEGLWindowSurfaceFactory(object : GLSurfaceView.EGLWindowSurfaceFactory {
+                override fun createWindowSurface(
+                    egl: EGL10, display: EGLDisplay, config: EGLConfig, nativeWindow: Any
+                ): EGLSurface {
+                    hdrSurfaceActive = false
+                    val extensions = egl.eglQueryString(display,EGL10.EGL_EXTENSIONS).orEmpty()
+                    if (extensions.contains("EGL_EXT_gl_colorspace_bt2020_pq")) {
+                        val attrs = intArrayOf(0x309D,0x3340,EGL10.EGL_NONE)
+                        val surface = egl.eglCreateWindowSurface(display,config,nativeWindow,attrs)
+                        if (surface != null && surface != EGL10.EGL_NO_SURFACE) {
+                            hdrSurfaceActive = true
+                            return surface
+                        }
+                    }
+                    // Remain SDR rather than displaying PQ values as ordinary SDR.
+                    return egl.eglCreateWindowSurface(display,config,nativeWindow,null)
+                }
+                override fun destroySurface(egl: EGL10, display: EGLDisplay, surface: EGLSurface) {
+                    hdrSurfaceActive = false
+                    egl.eglDestroySurface(display,surface)
+                }
+            })
+        }
         setRenderer(this)
         renderMode = RENDERMODE_WHEN_DIRTY
         setZOrderMediaOverlay(true)
@@ -73,6 +105,7 @@ class ReferenceScalerView(context: Context) : GLSurfaceView(context), GLSurfaceV
             val trainedModel = context.assets.open("reflite/FSRCNNX_x2_8-0-4-1.glsl")
                 .bufferedReader().use { it.readText() }
             neuralPipeline = FsrcnnxPipeline(trainedModel)
+            if (hdrRequested && !hdrSurfaceActive) post { onHdrUnavailable?.invoke() }
             surfaceTexture = SurfaceTexture(texVideo).also { st ->
                 st.setDefaultBufferSize(srcW, srcH)
                 st.setOnFrameAvailableListener { pending.set(true); requestRender() }
@@ -101,7 +134,7 @@ class ReferenceScalerView(context: Context) : GLSurfaceView(context), GLSurfaceV
             val workW = (srcW * neuralScale).toInt().coerceAtLeast(1)
             val workH = (srcH * neuralScale).toInt().coerceAtLeast(1)
             val start = System.nanoTime()
-            neuralPipeline?.render(texVideo, transform, workW, workH, outW, outH, diagnosticEnabled)
+            neuralPipeline?.render(texVideo, transform, workW, workH, outW, outH, diagnosticEnabled, hdrRequested && hdrSurfaceActive)
             if (newFrame) {
                 // GPU work is asynchronous. Wait for completion before judging
                 // whether the network meets the movie-frame deadline.
