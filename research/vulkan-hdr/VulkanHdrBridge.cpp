@@ -242,7 +242,11 @@ struct HdrBridge {
             }
         }
         uint32_t imageIndex=0;
-        VkResult r=vkAcquireNextImageKHR(device,swapchain,UINT64_MAX,acquire,VK_NULL_HANDLE,&imageIndex);
+        VkResult r=vkAcquireNextImageKHR(device,swapchain,16000000ULL,acquire,VK_NULL_HANDLE,&imageIndex);
+        // A display refresh-rate switch can destroy/recreate the Android
+        // window. Never hold the native mutex forever in acquire: the surface
+        // lifecycle must be able to stop and recreate this swapchain.
+        if(r==VK_TIMEOUT || r==VK_NOT_READY) return true; // drop this frame
         if(r!=VK_SUCCESS && r!=VK_SUBOPTIMAL_KHR){LOG("Acquire: %d",r);return false;}
         vkResetCommandPool(device,pool,0);
         VkCommandBufferBeginInfo bi{};bi.sType=VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
