@@ -62,10 +62,11 @@ class ReferenceScalerView(context: Context, private val hdrRequested: Boolean = 
     @Volatile private var hdrPresentAttempts = 0
     @Volatile private var hdrPresentSuccesses = 0
     @Volatile private var lastInteropError = "none"
+    @Volatile private var sharedPixelTest = "not tested"
     fun hdrSnapshot(): String = "Decoder frames=$decoderFrameCount, GL draws=$glDrawCount, " +
         "shared FBO=$sharedFbo ($sharedW x $sharedH), " +
         "HDR presents=$hdrPresentSuccesses/$hdrPresentAttempts, blue frames=$hdrDiagnosticFrameCount, " +
-        "GL error=$lastInteropError; out=$outW x $outH"
+        "GL error=$lastInteropError; shared pixel=$sharedPixelTest; out=$outW x $outH"
 
     fun attachVulkan(bridge: VulkanHdrBridgeView?) {
         vulkanBridge = bridge
@@ -255,6 +256,26 @@ class ReferenceScalerView(context: Context, private val hdrRequested: Boolean = 
                         GLES30.glViewport(0, 0, captureW, captureH)
                         GLES30.glClearColor(0.13f, 0.42f, 0.67f, 1.0f)
                         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
+                        if (hdrDiagnosticFrameCount == 0) {
+                            // Inspect one pixel INSIDE OpenGL's shared FBO.
+                            // If it is blue here but not on the TV, the failure
+                            // is Vulkan's import/copy, NOT the neural renderer.
+                            GLES30.glFinish()
+                            val pixel = ByteBuffer.allocateDirect(16)
+                                .order(ByteOrder.nativeOrder())
+                            GLES30.glReadPixels(captureW / 2, captureH / 2, 1, 1,
+                                GLES30.GL_RGBA, GLES30.GL_FLOAT, pixel)
+                            val error = GLES30.glGetError()
+                            sharedPixelTest = if (error == GLES30.GL_NO_ERROR) {
+                                pixel.position(0)
+                                val values = pixel.asFloatBuffer()
+                                "GL RGBA=" + (0 until 4).joinToString(",") {
+                                    "%.3f".format(java.util.Locale.US, values.get(it))
+                                }
+                            } else {
+                                "GL pixel readback error=0x" + error.toString(16)
+                            }
+                        }
                         hdrDiagnosticFrameCount++
                     } else {
                         neuralPipeline?.render(texVideo, transform, workW, workH,
