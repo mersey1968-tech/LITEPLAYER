@@ -19,3 +19,16 @@ for group in tree.getroot().findall(f"{ns}ItemGroup"):
                 group.remove(elem)
 tree.write(project,encoding="utf-8",xml_declaration=True)
 print("Configured foo_sample project to include LNS30 DSP only.")
+
+# Official SDK sample solution currently declares x86 only. Mirror its release
+# mappings for x64; every included project has its own x64 configuration.
+sln=root/"foo_sample.sln"
+sol=sln.read_text(encoding="utf-8-sig")
+sol=sol.replace("Release|x86 = Release|x86", "Release|x86 = Release|x86\\n\\t\\tRelease|x64 = Release|x64")
+lines=sol.splitlines()
+new=[]
+for line in lines:
+    new.append(line)
+    if ".Release|x86." in line:
+        new.append(line.replace("Release|x86", "Release|x64").replace("Release|Win32", "Release|x64"))
+sln.write_text("\\n".join(new)+"\\n",encoding="utf-8-sig")
