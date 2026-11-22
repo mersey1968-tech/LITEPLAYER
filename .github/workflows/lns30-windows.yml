@@ -1,0 +1,31 @@
+name: LNS30 Windows test build
+on:
+  push:
+    branches: [lns30-windows-test]
+  workflow_dispatch:
+jobs:
+  windows-build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile native Windows x64 executable
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $clang = (Get-Command clang++.exe -ErrorAction SilentlyContinue)
+          if ($null -ne $clang) {
+            & clang++.exe -std=c++17 -O2 -Wall -Wextra lns30/test.cpp -o dist/LNS30-test.exe
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } else {
+            & g++.exe -std=c++17 -O2 -Wall -Wextra lns30/test.cpp -o dist/LNS30-test.exe
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+      - name: Run self-test
+        shell: pwsh
+        run: |
+          .\dist\LNS30-test.exe | Tee-Object -FilePath dist/test-results.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LNS30-Windows-test-exe
+          path: dist/
