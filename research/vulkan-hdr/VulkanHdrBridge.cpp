@@ -38,6 +38,7 @@ struct HdrBridge {
     VkImage sharedImage=VK_NULL_HANDLE;
     VkDeviceMemory sharedMemory=VK_NULL_HANDLE;
     bool zeroCopySupported=false;
+    uint32_t hdrFrameOrdinal=0;
     uint32_t sharedW=0,sharedH=0;
     VkImage source=VK_NULL_HANDLE;
     VkDeviceMemory sourceMemory=VK_NULL_HANDLE;
@@ -82,6 +83,7 @@ struct HdrBridge {
         if(window)ANativeWindow_release(window);
         instance=VK_NULL_HANDLE;device=VK_NULL_HANDLE;surface=VK_NULL_HANDLE;
         zeroCopySupported=false;
+        hdrFrameOrdinal=0;
         window=nullptr;swapchain=VK_NULL_HANDLE;pool=VK_NULL_HANDLE;
         upload=VK_NULL_HANDLE;uploadMemory=VK_NULL_HANDLE;uploadMapped=nullptr;
         source=VK_NULL_HANDLE;sourceMemory=VK_NULL_HANDLE;
@@ -348,15 +350,31 @@ struct HdrBridge {
         barrier(swapImages[idx],VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
             0,VK_ACCESS_TRANSFER_WRITE_BIT,
             VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,VK_PIPELINE_STAGE_TRANSFER_BIT);
-        VkImageBlit blit{};
-        blit.srcSubresource.aspectMask=VK_IMAGE_ASPECT_COLOR_BIT;
-        blit.srcSubresource.layerCount=1;
-        blit.srcOffsets[1]={int32_t(sharedW),int32_t(sharedH),1};
-        blit.dstSubresource.aspectMask=VK_IMAGE_ASPECT_COLOR_BIT;
-        blit.dstSubresource.layerCount=1;
-        blit.dstOffsets[1]={int32_t(extent.width),int32_t(extent.height),1};
-        vkCmdBlitImage(cmd,sharedImage,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-            swapImages[idx],VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,1,&blit,VK_FILTER_LINEAR);
+        // Diagnostic sequence: first 60 frames draw directly onto the SAME
+        // live HDR swapchain, without sampling the external shared buffer.
+        // A visible red frame means Android can display this Vulkan SurfaceView.
+        // Black red frames point to swapchain compositing, not FSRCNNX/AHB.
+        const bool directRedTest=hdrFrameOrdinal++<60;
+        if(directRedTest){
+            VkClearColorValue red{};
+            red.float32[0]=0.72f; red.float32[1]=0.02f;
+            red.float32[2]=0.02f; red.float32[3]=1.0f;
+            VkImageSubresourceRange range{};
+            range.aspectMask=VK_IMAGE_ASPECT_COLOR_BIT;
+            range.levelCount=1;range.layerCount=1;
+            vkCmdClearColorImage(cmd,swapImages[idx],
+                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,&red,1,&range);
+        }else{
+            VkImageBlit blit{};
+            blit.srcSubresource.aspectMask=VK_IMAGE_ASPECT_COLOR_BIT;
+            blit.srcSubresource.layerCount=1;
+            blit.srcOffsets[1]={int32_t(sharedW),int32_t(sharedH),1};
+            blit.dstSubresource.aspectMask=VK_IMAGE_ASPECT_COLOR_BIT;
+            blit.dstSubresource.layerCount=1;
+            blit.dstOffsets[1]={int32_t(extent.width),int32_t(extent.height),1};
+            vkCmdBlitImage(cmd,sharedImage,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                swapImages[idx],VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,1,&blit,VK_FILTER_LINEAR);
+        }
         barrier(swapImages[idx],VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
             VK_ACCESS_TRANSFER_WRITE_BIT,0,
             VK_PIPELINE_STAGE_TRANSFER_BIT,VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
