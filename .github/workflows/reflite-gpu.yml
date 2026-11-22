@@ -1,0 +1,61 @@
+name: Reflite GPU ReferenceScaler experimental APK
+on:
+  push:
+    branches: [reflite-gpu-stage1]
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Unpack stable Android project
+        run: unzip -q LitePlayer.zip -d proj
+      - name: Overlay original stable player implementation
+        run: |
+          cp source-review/app/src/main/java/com/example/liteplayer/MainActivity.kt proj/app/src/main/java/com/example/liteplayer/MainActivity.kt
+          cp source-review/app/src/main/java/com/example/liteplayer/audio/IecAudioOutput.kt proj/app/src/main/java/com/example/liteplayer/audio/IecAudioOutput.kt
+          cp source-review/app/src/main/java/com/example/liteplayer/SmbAccess.kt proj/app/src/main/java/com/example/liteplayer/SmbAccess.kt
+          cp source-review/app/src/main/res/layout/activity_main.xml proj/app/src/main/res/layout/activity_main.xml
+          sed -i '/^dependencies {/a\    implementation("eu.agno3.jcifs:jcifs-ng:2.1.10")' proj/app/build.gradle.kts
+      - name: Isolate Reflite identity and stage research shader
+        run: |
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          g=Path("proj/app/build.gradle.kts")
+          s=g.read_text()
+          s,n=re.subn(r'applicationId\s*=\s*"[^"]+"', 'applicationId = "com.example.reflite.experimental"', s, count=1)
+          if n!=1: raise RuntimeError("Could not assign independent Reflite app ID")
+          g.write_text(s)
+          m=Path("proj/app/src/main/AndroidManifest.xml")
+          x=m.read_text()
+          x,n=re.subn(r'android:label\s*=\s*"[^"]+"', 'android:label="Reflite"', x, count=1)
+          if n!=1: raise RuntimeError("Could not assign Reflite launcher label")
+          m.write_text(x)
+          shader=Path("proj/app/src/main/assets/reflite")
+          shader.mkdir(parents=True,exist_ok=True)
+          (shader/"low_ringing_6tap.frag").write_bytes(Path("research/referencescaler/low_ringing_6tap.frag").read_bytes())
+          assert "com.example.reflite.experimental" in g.read_text()
+          assert 'android:label="Reflite"' in m.read_text()
+          print("Reflite app ID, launcher label, research shader staged")
+          PY
+      - name: Add opt-in GPU renderer in isolated test copy
+        run: python3 research/referencescaler/patch_gpu.py
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+      - name: Build Reflite APK
+        working-directory: proj
+        run: gradle assembleDebug --no-daemon
+      - name: Preserve distinct APK filename
+        run: |
+          mkdir -p dist
+          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-GPU-stage1.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Reflite-ReferenceScaler-GPU-test-APK
+          path: dist/Reflite-experimental.apk
