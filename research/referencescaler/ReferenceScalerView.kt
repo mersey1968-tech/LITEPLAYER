@@ -103,6 +103,9 @@ class ReferenceScalerView(context: Context) : GLSurfaceView(context), GLSurfaceV
             val start = System.nanoTime()
             neuralPipeline?.render(texVideo, transform, workW, workH, outW, outH, diagnosticEnabled)
             if (newFrame) {
+                // GPU work is asynchronous. Wait for completion before judging
+                // whether the network meets the movie-frame deadline.
+                GLES30.glFinish()
                 val elapsedMs = (System.nanoTime() - start) / 1_000_000.0
                 // Start at native source size. If rendering repeatedly misses a
                 // 30fps budget, progressively back off: 1080p -> ~810p -> 540p.
