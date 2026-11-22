@@ -24,7 +24,7 @@ jobs:
       - name: Build x64 component from official SDK solution
         shell: pwsh
         run: |
-          msbuild sdk/foobar2000/foo_sample/foo_sample.sln /m /p:Configuration=Release /p:Platform=x64 /p:TargetName=foo_lns30 /v:minimal
+          msbuild sdk/foobar2000/foo_sample/foo_sample.sln /m:1 /p:Configuration=Release /p:Platform=x64 /v:minimal
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Package foobar2000 component
         shell: pwsh
