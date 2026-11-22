@@ -53,6 +53,16 @@ class ReferenceScalerView(context: Context, private val hdrRequested: Boolean = 
     private var sharedW = 0
     private var sharedH = 0
     private var hdrDiagnosticFrameCount = 0
+    @Volatile private var decoderFrameCount = 0
+    @Volatile private var glDrawCount = 0
+    @Volatile private var hdrPresentAttempts = 0
+    @Volatile private var hdrPresentSuccesses = 0
+    @Volatile private var lastInteropError = "none"
+    fun hdrSnapshot(): String = "Decoder frames=$decoderFrameCount, GL draws=$glDrawCount, " +
+        "shared FBO=$sharedFbo ($sharedW x $sharedH), " +
+        "HDR presents=$hdrPresentSuccesses/$hdrPresentAttempts, blue frames=$hdrDiagnosticFrameCount, " +
+        "GL error=$lastInteropError; out=$outW x $outH"
+
     fun attachVulkan(bridge: VulkanHdrBridgeView?) {
         vulkanBridge = bridge
     }
@@ -194,8 +204,10 @@ class ReferenceScalerView(context: Context, private val hdrRequested: Boolean = 
                 surfaceTexture?.updateTexImage()
                 surfaceTexture?.getTransformMatrix(transform)
                 hasVideoFrame = true
+                decoderFrameCount++
             }
             if (!hasVideoFrame) return
+            glDrawCount++
             val workW = (srcW * neuralScale).toInt().coerceAtLeast(1)
             val workH = (srcH * neuralScale).toInt().coerceAtLeast(1)
             // Full GPU fences on every frame add CPU/GPU stalls and can cause
@@ -213,6 +225,7 @@ class ReferenceScalerView(context: Context, private val hdrRequested: Boolean = 
                 if (sharedFbo == 0 || sharedW != captureW || sharedH != captureH) {
                     if (sharedFbo != 0) bridge.releaseSharedGL()
                     sharedFbo = bridge.prepareShared(captureW, captureH)
+                    if (sharedFbo == 0) lastInteropError = "shared framebuffer allocation failed"
                     sharedW = captureW
                     sharedH = captureH
                 }
@@ -232,7 +245,11 @@ class ReferenceScalerView(context: Context, private val hdrRequested: Boolean = 
                             captureW, captureH, false, true, sharedFbo)
                     }
                     GLES30.glFinish()
-                    bridge.presentShared()
+                    val glError = GLES30.glGetError()
+                    if (glError != GLES30.GL_NO_ERROR)
+                        lastInteropError = "GLES error 0x" + glError.toString(16)
+                    hdrPresentAttempts++
+                    if (bridge.presentShared()) hdrPresentSuccesses++
                 }
             } else {
                 neuralPipeline?.render(texVideo, transform, workW, workH, outW, outH,
