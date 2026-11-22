@@ -1,0 +1,5 @@
+cmake_minimum_required(VERSION 3.22.1)
+project(reflite_vulkan_probe LANGUAGES CXX)
+add_library(reflite_vulkan_probe SHARED VulkanHdrProbe.cpp)
+set_target_properties(reflite_vulkan_probe PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+target_link_libraries(reflite_vulkan_probe vulkan android log)
