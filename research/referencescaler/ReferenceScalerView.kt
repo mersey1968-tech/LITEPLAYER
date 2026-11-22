@@ -28,7 +28,8 @@ class ReferenceScalerView(context: Context, private val hdrRequested: Boolean = 
     private var neuralPipeline: FsrcnnxPipeline? = null
     @Volatile private var hdrSurfaceActive = false
     @Volatile private var hdrConfigTenBit = false
-    var onHdrUnavailable: (() -> Unit)? = null
+    var onHdrUnavailable: ((String) -> Unit)? = null
+    @Volatile private var hdrDiagnostic = "HDR output not attempted"
     private var surfaceTexture: SurfaceTexture? = null
     private val pending = AtomicBoolean(false)
     private val transform = FloatArray(16)
@@ -95,6 +96,7 @@ class ReferenceScalerView(context: Context, private val hdrRequested: Boolean = 
                         channel(it,EGL10.EGL_BLUE_SIZE)>=8
                     }
                     hdrConfigTenBit = rgb10 != null
+                    hdrDiagnostic = "EGL RGB10 config: " + (rgb10 != null) + "; RGB8 config: " + (rgb8 != null)
                     return rgb10 ?: rgb8 ?: candidates.first()
                 }
             })
@@ -104,6 +106,8 @@ class ReferenceScalerView(context: Context, private val hdrRequested: Boolean = 
                 ): EGLSurface {
                     hdrSurfaceActive = false
                     val extensions = egl.eglQueryString(display,EGL10.EGL_EXTENSIONS).orEmpty()
+                    val supportsPQ = extensions.contains("EGL_EXT_gl_colorspace_bt2020_pq")
+                    hdrDiagnostic += "; EGL BT.2020 PQ extension: " + supportsPQ
                     // A 10-bit EGL window config is not a prerequisite for
                     // requesting BT.2020/PQ on all Android implementations.
                     // Android maps this colourscape to an HDR dataspace.
@@ -113,10 +117,13 @@ class ReferenceScalerView(context: Context, private val hdrRequested: Boolean = 
                         val surface = egl.eglCreateWindowSurface(display,config,nativeWindow,attrs)
                         if (surface != null && surface != EGL10.EGL_NO_SURFACE) {
                             hdrSurfaceActive = true
+                            hdrDiagnostic += "; PQ surface: CREATED"
                             Log.i("Reflite HDR10", "EGL BT2020 PQ window created; RGB10 config=" + hdrConfigTenBit)
                             return surface
                         }
-                        Log.w("Reflite HDR10", "EGL rejected BT2020 PQ surface, error=" + egl.eglGetError())
+                        val eglError = egl.eglGetError()
+                        hdrDiagnostic += "; PQ create error: 0x" + Integer.toHexString(eglError)
+                        Log.w("Reflite HDR10", "EGL rejected BT2020 PQ surface, error=" + eglError)
                     }
                     // Keep normal FSRCNNX image unaffected on unsupported drivers.
                     Log.w("Reflite HDR10", "PQ unavailable, using SDR window; extensions support PQ=" +
@@ -152,7 +159,10 @@ class ReferenceScalerView(context: Context, private val hdrRequested: Boolean = 
             val trainedModel = context.assets.open("reflite/FSRCNNX_x2_8-0-4-1.glsl")
                 .bufferedReader().use { it.readText() }
             neuralPipeline = FsrcnnxPipeline(trainedModel)
-            if (hdrRequested && !hdrSurfaceActive) post { onHdrUnavailable?.invoke() }
+            if (hdrRequested && !hdrSurfaceActive) {
+                val detail = hdrDiagnostic
+                post { onHdrUnavailable?.invoke(detail) }
+            }
             surfaceTexture = SurfaceTexture(texVideo).also { st ->
                 st.setDefaultBufferSize(srcW, srcH)
                 st.setOnFrameAvailableListener { pending.set(true); requestRender() }
