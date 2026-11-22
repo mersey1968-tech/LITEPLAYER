@@ -50,23 +50,15 @@ replace_once(
 
     private fun showRefliteScalerDialog() {
         val choices = arrayOf(
-            "Original LitePlayer rendering",
-            "ReferenceScaler GPU (normal)",
-            "ReferenceScaler GPU DIAGNOSTIC (magenta corner)",
-            "FSRCNNX SDR to HDR10 (experimental)",
-            "Vulkan HDR10 output test (no video)",
-            "FSRCNNX Vulkan SDR to HDR10 (live experimental)"
+            "Original (no upscaling)",
+            "FSRCNNX Neural (SDR)",
+            "FSRCNNX Neural + HDR10 (Vulkan experimental)"
         )
         AlertDialog.Builder(this)
             .setTitle("Reflite video rendering")
-            .setSingleChoiceItems(choices, if (!referenceScalerEnabled) 0 else if (referenceVulkanEnabled) 5 else if (referenceHdrEnabled) 3 else if (referenceDiagnosticEnabled) 2 else 1) { dialog, which ->
-                if (which == 4) {
-                    dialog.dismiss()
-                    startActivity(android.content.Intent(this, VulkanHdrProbeActivity::class.java))
-                    return@setSingleChoiceItems
-                }
-                val wantHdr = which == 3
-                val wantVulkan = which == 5
+            .setSingleChoiceItems(choices, if (!referenceScalerEnabled) 0 else if (referenceVulkanEnabled) 2 else 1) { dialog, which ->
+                val wantHdr = false
+                val wantVulkan = which == 2
                 // EGL colours cannot be changed on a running GLSurfaceView.
                 // Recreate only when toggling between HDR and SDR surfaces.
                 if ((referenceHdrEnabled != wantHdr || referenceVulkanEnabled != wantVulkan) && scalerView != null) {
@@ -76,7 +68,7 @@ replace_once(
                 referenceHdrEnabled = wantHdr
                 referenceVulkanEnabled = wantVulkan
                 referenceScalerEnabled = which != 0
-                referenceDiagnosticEnabled = which == 2
+                referenceDiagnosticEnabled = false
                 if (referenceScalerEnabled && !allowedForReferenceScaler(resolvedScalerFormat())) {
                     val fmt = resolvedScalerFormat()
                     val info = if (fmt == null) "video format not reported yet" else
