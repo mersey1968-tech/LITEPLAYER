@@ -25,6 +25,7 @@ replace_once(
     // Never change the established hardware-decoder SurfaceView path for HDR/4K.
     private var referenceScalerEnabled = false
     private var referenceDiagnosticEnabled = false
+    private var referenceHdrEnabled = false
     private var scalerView: ReferenceScalerView? = null
     private var currentVideoFormat: Format? = null
 
@@ -49,11 +50,20 @@ replace_once(
         val choices = arrayOf(
             "Original LitePlayer rendering",
             "ReferenceScaler GPU (normal)",
-            "ReferenceScaler GPU DIAGNOSTIC (magenta corner)"
+            "ReferenceScaler GPU DIAGNOSTIC (magenta corner)",
+            "FSRCNNX SDR to HDR10 (experimental)"
         )
         AlertDialog.Builder(this)
             .setTitle("Reflite video rendering")
-            .setSingleChoiceItems(choices, if (!referenceScalerEnabled) 0 else if (referenceDiagnosticEnabled) 2 else 1) { dialog, which ->
+            .setSingleChoiceItems(choices, if (!referenceScalerEnabled) 0 else if (referenceHdrEnabled) 3 else if (referenceDiagnosticEnabled) 2 else 1) { dialog, which ->
+                val wantHdr = which == 3
+                // EGL colours cannot be changed on a running GLSurfaceView.
+                // Recreate only when toggling between HDR and SDR surfaces.
+                if (referenceHdrEnabled != wantHdr && scalerView != null) {
+                    referenceScalerEnabled = false
+                    applyRefliteScaler()
+                }
+                referenceHdrEnabled = wantHdr
                 referenceScalerEnabled = which != 0
                 referenceDiagnosticEnabled = which == 2
                 if (referenceScalerEnabled && !allowedForReferenceScaler(resolvedScalerFormat())) {
@@ -91,7 +101,10 @@ replace_once(
                 existing.setDiagnostic(referenceDiagnosticEnabled)
                 return
             }
-            val gpu = ReferenceScalerView(this)
+            val gpu = ReferenceScalerView(this, referenceHdrEnabled)
+            gpu.onHdrUnavailable = {
+                Toast.makeText(this, "HDR10 EGL output unavailable: remaining in SDR", Toast.LENGTH_LONG).show()
+            }
             scalerView = gpu
             gpu.setSourceSize(fmt.width, fmt.height)
             gpu.setDiagnostic(referenceDiagnosticEnabled)
