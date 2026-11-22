@@ -16,6 +16,11 @@ jobs:
         run: |
           git clone --depth 1 --branch SDK-2026-10-01 https://github.com/reupen/foobar2000-sdk-unmodified.git sdk
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Fetch WTL headers for SDK dependencies
+        shell: pwsh
+        run: |
+          git clone --depth 1 https://github.com/Win32-WTL/WTL.git wtl
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Prepare isolated LNS30 DSP component
         shell: pwsh
         run: |
@@ -24,6 +29,7 @@ jobs:
       - name: Build x64 component from official SDK solution
         shell: pwsh
         run: |
+          $env:CL = '/I"' + (Join-Path $PWD 'wtl/Include') + '" /FS'
           msbuild sdk/foobar2000/foo_sample/foo_sample.sln /m:1 /p:Configuration=Release /p:Platform=x64 /v:minimal
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Package foobar2000 component
