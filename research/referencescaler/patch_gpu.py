@@ -27,6 +27,12 @@ replace_once(
     private var scalerView: ReferenceScalerView? = null
     private var currentVideoFormat: Format? = null
 
+    private fun resolvedScalerFormat(): Format? {
+        // Media3 may deliver selected-track changes before/after decoded output.
+        // ExoPlayer.videoFormat is the authoritative format currently being rendered.
+        return player?.videoFormat ?: currentVideoFormat
+    }
+
     private fun allowedForReferenceScaler(f: Format?): Boolean {
         if (f == null || f.width < 1 || f.width > 1920 || f.height !in 540..1080) return false
         if (f.sampleMimeType == MimeTypes.VIDEO_DOLBY_VISION) return false
@@ -41,8 +47,12 @@ replace_once(
             .setTitle("Reflite video rendering")
             .setSingleChoiceItems(choices, if (referenceScalerEnabled) 1 else 0) { dialog, which ->
                 referenceScalerEnabled = which == 1
-                if (referenceScalerEnabled && !allowedForReferenceScaler(currentVideoFormat)) {
-                    Toast.makeText(this, "ReferenceScaler works only with 540p–1080p SDR", Toast.LENGTH_LONG).show()
+                if (referenceScalerEnabled && !allowedForReferenceScaler(resolvedScalerFormat())) {
+                    val fmt = resolvedScalerFormat()
+                    val info = if (fmt == null) "video format not reported yet" else
+                        "${fmt.width}×${fmt.height}, transfer=${fmt.colorInfo?.colorTransfer ?: -1}"
+                    Toast.makeText(this, "Scaler cannot activate: $info", Toast.LENGTH_LONG).show()
+                    referenceScalerEnabled = false
                 }
                 applyRefliteScaler()
                 dialog.dismiss()
@@ -52,7 +62,7 @@ replace_once(
 
     private fun applyRefliteScaler() {
         val activePlayer = player
-        if (!referenceScalerEnabled || !allowedForReferenceScaler(currentVideoFormat) || activePlayer == null) {
+        if (!referenceScalerEnabled || !allowedForReferenceScaler(resolvedScalerFormat()) || activePlayer == null) {
             if (scalerView != null) {
                 // Restore the established decoder target before releasing GPU resources.
                 (playerView.videoSurfaceView as? SurfaceView)?.let { activePlayer?.setVideoSurfaceView(it) }
@@ -65,7 +75,7 @@ replace_once(
             }
             return
         }
-        currentVideoFormat?.let { fmt ->
+        resolvedScalerFormat()?.let { fmt ->
             val existing = scalerView
             if (existing != null) {
                 existing.setSourceSize(fmt.width, fmt.height)
