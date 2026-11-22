@@ -26,6 +26,17 @@ class VulkanHdrBridgeView(context: Context) : SurfaceView(context) {
     @Volatile private var started = false
     @Volatile private var surfaceWidth = 0
     @Volatile private var surfaceHeight = 0
+    private val firstFrame = AtomicBoolean(false)
+    private var surfaceGeneration = 0
+    private fun watchFirstFrame() {
+        val generation = ++surfaceGeneration
+        postDelayed({
+            if (generation == surfaceGeneration && isAttachedToWindow &&
+                active.get() && !failed && !firstFrame.get()) {
+                reportFailure("Vulkan HDR initialized but received no video frames (12 s)")
+            }
+        }, 12000L)
+    }
     var onFailure: ((String) -> Unit)? = null
     var onSurfaceReady: (() -> Unit)? = null
 
@@ -44,7 +55,8 @@ class VulkanHdrBridgeView(context: Context) : SurfaceView(context) {
                             started = true
                             failed = false
                             active.set(true)
-                        post { onSurfaceReady?.invoke() }
+                            firstFrame.set(false)
+                            post { onSurfaceReady?.invoke(); watchFirstFrame() }
                         } else {
                             failed = true
                             post { onFailure?.invoke(failure) }
@@ -71,7 +83,8 @@ class VulkanHdrBridgeView(context: Context) : SurfaceView(context) {
                                 started = true
                                 failed = false
                                 active.set(true)
-                            post { onSurfaceReady?.invoke() }
+                                firstFrame.set(false)
+                                post { onSurfaceReady?.invoke(); watchFirstFrame() }
                             } else {
                                 failed = true
                                 post { onFailure?.invoke(failure) }
@@ -84,6 +97,7 @@ class VulkanHdrBridgeView(context: Context) : SurfaceView(context) {
                 }
             }
             override fun surfaceDestroyed(holder: SurfaceHolder) {
+                surfaceGeneration++
                 active.set(false)
                 surfaceWidth = 0
                 surfaceHeight = 0
@@ -109,7 +123,8 @@ class VulkanHdrBridgeView(context: Context) : SurfaceView(context) {
     fun presentShared(): Boolean {
         if (!isReady()) return false
         val ok = nativePresentShared()
-        if (!ok) reportFailure("Vulkan HDR zero-copy present: " + nativeSharedError())
+        if (ok) firstFrame.set(true)
+        else reportFailure("Vulkan HDR zero-copy present: " + nativeSharedError())
         return ok
     }
     fun releaseSharedGL() = nativeReleaseSharedGL()
