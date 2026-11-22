@@ -48,6 +48,11 @@ class ReferenceScalerView(context: Context, private val hdrRequested: Boolean = 
     private var presentedFrames = 0
     private var hasVideoFrame = false
     @Volatile private var diagnosticEnabled = false
+    @Volatile private var vulkanBridge: VulkanHdrBridgeView? = null
+    private var readback: ByteBuffer? = null
+    fun attachVulkan(bridge: VulkanHdrBridgeView?) {
+        vulkanBridge = bridge
+    }
 
     fun setDiagnostic(enabled: Boolean) {
         diagnosticEnabled = enabled
@@ -194,7 +199,31 @@ class ReferenceScalerView(context: Context, private val hdrRequested: Boolean = 
             // video to lag audio. Sample completion only every eighth new frame.
             val sampleGpu = newFrame && (++presentedFrames % 8 == 0)
             val start = if (sampleGpu) System.nanoTime() else 0L
-            neuralPipeline?.render(texVideo, transform, workW, workH, outW, outH, diagnosticEnabled, hdrRequested && hdrSurfaceActive)
+            val bridge = vulkanBridge?.takeIf { it.isReady() }
+            if (bridge != null && newFrame) {
+                // Experimental EGL -> Vulkan bridge. SDR FSRCNNX output remains
+                // unchanged, then Vulkan maps it to HDR10 PQ for presentation.
+                // Bound readback size to avoid 4K GPU->CPU transfers.
+                val factor = minOf(1.0f, 1280f / srcW, 720f / srcH)
+                val captureW = (srcW * factor).toInt().coerceAtLeast(2)
+                val captureH = (srcH * factor).toInt().coerceAtLeast(2)
+                ensureFramebuffer(captureW, captureH)
+                neuralPipeline?.render(texVideo, transform, workW, workH,
+                    captureW, captureH, false, false, framebuffer)
+                val bytes = captureW * captureH * 4
+                val upload = readback?.takeIf { it.capacity() == bytes }
+                    ?: ByteBuffer.allocateDirect(bytes).order(ByteOrder.nativeOrder()).also { readback = it }
+                upload.position(0)
+                GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, framebuffer)
+                GLES30.glReadPixels(0, 0, captureW, captureH,
+                    GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, upload)
+                GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
+                upload.position(0)
+                bridge.send(upload, captureW, captureH)
+            } else {
+                neuralPipeline?.render(texVideo, transform, workW, workH, outW, outH,
+                    diagnosticEnabled, hdrRequested && hdrSurfaceActive)
+            }
             if (sampleGpu) {
                 GLES30.glFinish()
                 val elapsedMs = (System.nanoTime() - start) / 1_000_000.0
@@ -286,6 +315,11 @@ class ReferenceScalerView(context: Context, private val hdrRequested: Boolean = 
             surfaceTexture=null
             neuralPipeline?.close()
             neuralPipeline=null
+            if (texIntermediate!=0) GLES30.glDeleteTextures(1,intArrayOf(texIntermediate),0)
+            if (framebuffer!=0) GLES30.glDeleteFramebuffers(1,intArrayOf(framebuffer),0)
+            texIntermediate=0
+            framebuffer=0
+            readback=null
         }
     }
 
