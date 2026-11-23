@@ -71,6 +71,8 @@ jobs:
         run: python3 research/fsrcnnx/patch_auto_tv_cleanup.py
       - name: Protect neural input detail and reconstruct 720p to 4K
         run: python3 research/fsrcnnx/patch_720p_1080p_quality.py
+      - name: Fix Back navigation when playback controls visible
+        run: python3 research/referencescaler/patch_back_controls.py
       - uses: android-actions/setup-android@v3
         with:
           packages: "platform-tools"
