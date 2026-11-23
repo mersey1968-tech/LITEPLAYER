@@ -11,5 +11,6 @@ internal object HdrSurfaceControl {
     @JvmStatic external fun begin(handle: Long): Int
     @JvmStatic external fun present(handle: Long): Boolean
     @JvmStatic external fun destroy(handle: Long)
+    @JvmStatic external fun snapshot(handle: Long): String
     @JvmStatic external fun lastError(): String
 }
