@@ -1,7 +1,7 @@
-name: Reflite GPU FSRCNNX neural test APK
+name: Reflite Neural SurfaceControl HDR10 10bit experiment
 on:
   push:
-    branches: [reflite-neural-subtitle-persistence]
+    branches: [reflite-hdr-surfacecontrol-hardwarebuffer]
   workflow_dispatch:
 jobs:
   build:
@@ -65,9 +65,28 @@ jobs:
         run: python3 research/referencescaler/patch_sdr_clean.py
       - name: Render subtitles above neural surface
         run: python3 research/referencescaler/patch_subtitles_overlay.py
+      - name: Stage 10-bit native SurfaceControl HDR10 presenter
+        run: |
+          mkdir -p proj/app/src/main/cpp
+          cp research/hdr-surfacecontrol/HdrSurfaceControl.cpp proj/app/src/main/cpp/
+          cp research/hdr-surfacecontrol/CMakeLists.txt proj/app/src/main/cpp/
+          cp research/hdr-surfacecontrol/HdrSurfaceControl.kt proj/app/src/main/java/com/example/liteplayer/
+          python3 research/hdr-surfacecontrol/patch_surfacecontrol.py
+          cat >> proj/app/build.gradle.kts <<'EOF'
+
+          android {
+              defaultConfig { minSdk = 29 }
+              externalNativeBuild {
+                  cmake { path = file("src/main/cpp/CMakeLists.txt") }
+              }
+          }
+          EOF
+
       - uses: android-actions/setup-android@v3
         with:
           packages: "platform-tools"
+      - name: Install Android native toolchain
+        run: sdkmanager --install "ndk;27.2.12479018" "cmake;3.22.1"
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -81,8 +100,8 @@ jobs:
       - name: Preserve distinct APK filename
         run: |
           mkdir -p dist
-          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-GPU-stage1.apk
+          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-SurfaceControl-HDR10-Test.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: Reflite-ReferenceScaler-GPU-test-APK
+          name: Reflite-SurfaceControl-HDR10-Test-APK
           path: dist/Reflite-GPU-stage1.apk
