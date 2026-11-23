@@ -1,7 +1,7 @@
-name: Reflite FSRCNNX automatic TV cleanup
+name: Reflite FSRCNNX protected 720p and 1080p to 4K
 on:
   push:
-    branches: [reflite-neural-detail-cleanup-test]
+    branches: [reflite-neural-720p-1080p-quality]
   workflow_dispatch:
 jobs:
   build:
@@ -69,6 +69,8 @@ jobs:
         run: python3 research/fsrcnnx/patch_natural_detail.py
       - name: Stage automatic gentle TV episode cleanup without additional settings
         run: python3 research/fsrcnnx/patch_auto_tv_cleanup.py
+      - name: Protect neural input detail and reconstruct 720p to 4K
+        run: python3 research/fsrcnnx/patch_720p_1080p_quality.py
       - uses: android-actions/setup-android@v3
         with:
           packages: "platform-tools"
@@ -85,8 +87,8 @@ jobs:
       - name: Preserve distinct APK filename
         run: |
           mkdir -p dist
-          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-Neural-TV-Cleanup.apk
+          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-Neural-720p-1080p-4K.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: Reflite-Neural-TV-Cleanup-APK
-          path: dist/Reflite-Neural-TV-Cleanup.apk
+          name: Reflite-Neural-720p-1080p-4K-APK
+          path: dist/Reflite-Neural-720p-1080p-4K.apk
