@@ -80,6 +80,6 @@ end = r.index('\n        }', begin)
 r = r[:begin] + r[end:]
 r = r.replace('setZOrderMediaOverlay(true)', 'setZOrderMediaOverlay(false)')
 assert 'VulkanHdrBridgeView' not in r and 'vulkanBridge' not in r
-r = r.replace("                decoderFrameCount++\\n", "").replace("            glDrawCount++\\n", "")
+r = r.replace("decoderFrameCount++", "").replace("glDrawCount++", "")
 renderer.write_text(r)
 print("Reflite SDR-only neural renderer, subtitle layer and persistent selection staged.")
