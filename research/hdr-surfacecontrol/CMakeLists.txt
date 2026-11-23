@@ -1,0 +1,5 @@
+cmake_minimum_required(VERSION 3.22.1)
+project(reflite_hdr_surfacecontrol LANGUAGES CXX)
+add_library(reflite_hdr_surfacecontrol SHARED HdrSurfaceControl.cpp)
+target_compile_features(reflite_hdr_surfacecontrol PRIVATE cxx_std_17)
+target_link_libraries(reflite_hdr_surfacecontrol android nativewindow EGL GLESv3 log)
