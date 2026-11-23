@@ -104,4 +104,4 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: Reflite-HDR10-Native-Experimental-APK
-          path: dist/Reflite-GPU-stage1.apk
+          path: dist/Reflite-HDR10-Native-Experimental.apk
