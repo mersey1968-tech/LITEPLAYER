@@ -104,4 +104,4 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: Reflite-SurfaceControl-HDR10-Test-APK
-          path: dist/Reflite-GPU-stage1.apk
+          path: dist/Reflite-SurfaceControl-HDR10-Test.apk
