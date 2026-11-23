@@ -1,7 +1,7 @@
-name: Reflite FSRCNNX TV natural depth and microcontrast
+name: Reflite Neural TV Depth video and audio stop fix
 on:
   push:
-    branches: [reflite-neural-tv-depth-contrast]
+    branches: [reflite-neural-tv-depth-playback-fix]
   workflow_dispatch:
 jobs:
   build:
@@ -75,6 +75,8 @@ jobs:
         run: python3 research/fsrcnnx/patch_tv_microcontrast.py
       - name: Fix Back navigation when playback controls visible
         run: python3 research/referencescaler/patch_back_controls.py
+      - name: Fix 1080p presentation and stop playback on exit; increase real neural detail
+        run: python3 research/fsrcnnx/patch_playback_and_real_detail.py
       - uses: android-actions/setup-android@v3
         with:
           packages: "platform-tools"
@@ -91,8 +93,8 @@ jobs:
       - name: Preserve distinct APK filename
         run: |
           mkdir -p dist
-          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-Neural-TV-Depth-4K.apk
+          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-Neural-TV-Depth-FIX.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: Reflite-Neural-TV-Depth-4K-APK
-          path: dist/Reflite-Neural-TV-Depth-4K.apk
+          name: Reflite-Neural-TV-Depth-FIX-APK
+          path: dist/Reflite-Neural-TV-Depth-FIX.apk
