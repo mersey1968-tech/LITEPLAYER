@@ -42,6 +42,7 @@ struct Layer {
     int current = -1;
     int displayed = -1;
     int sent = 0;
+    uint64_t submittedFrames = 0;
     std::array<Slot,3> slots;
 };
 void onPreviousReleased(void* context, ASurfaceTransactionStats*) {
@@ -183,6 +184,7 @@ Java_com_example_liteplayer_HdrSurfaceControl_present(JNIEnv*,jclass,jlong ptr) 
     ASurfaceTransaction_apply(tx);
     ASurfaceTransaction_delete(tx);
     layer->displayed=next;
+    layer->submittedFrames++;
     layer->current=-1;
     layer->sent=(next+1)%3;
     return JNI_TRUE;
@@ -195,4 +197,21 @@ extern "C" JNIEXPORT jstring JNICALL
 Java_com_example_liteplayer_HdrSurfaceControl_lastError(JNIEnv* env,jclass) {
     std::lock_guard<std::mutex> lock(errorMutex);
     return env->NewStringUTF(lastError.c_str());
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_example_liteplayer_HdrSurfaceControl_snapshot(JNIEnv* env,jclass,jlong ptr) {
+    auto* layer = reinterpret_cast<Layer*>(ptr);
+    if (!layer) return env->NewStringUTF("Native HDR layer unavailable");
+    AHardwareBuffer_Desc d{};
+    if(layer->slots[0].hw) AHardwareBuffer_describe(layer->slots[0].hw, &d);
+    std::string result =
+        "SurfaceControl submitted=" + std::to_string(layer->submittedFrames) +
+        "\\nHardwareBuffer format=" + std::to_string(d.format) +
+        " (10-bit R10G10B10A2 requested)" +
+        "\\nBuffer size=" + std::to_string(d.width) + " x " + std::to_string(d.height) +
+        "\\nRequested dataspace=BT.2020/PQ" +
+        "\\nGPU=OpenGL ES, no Vulkan";
+    LOGI("%s",result.c_str());
+    return env->NewStringUTF(result.c_str());
 }
