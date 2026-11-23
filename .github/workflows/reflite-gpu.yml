@@ -1,7 +1,7 @@
-name: Reflite Neural SurfaceControl HDR10 10bit experiment
+name: Reflite HDR10 SurfaceControl orientation and diagnostics
 on:
   push:
-    branches: [reflite-hdr-surfacecontrol-hardwarebuffer]
+    branches: [reflite-hdr-orientation-diagnostics]
   workflow_dispatch:
 jobs:
   build:
@@ -72,6 +72,7 @@ jobs:
           cp research/hdr-surfacecontrol/CMakeLists.txt proj/app/src/main/cpp/
           cp research/hdr-surfacecontrol/HdrSurfaceControl.kt proj/app/src/main/java/com/example/liteplayer/
           python3 research/hdr-surfacecontrol/patch_surfacecontrol.py
+          python3 research/hdr-surfacecontrol/patch_orientation_diag.py
           cat >> proj/app/build.gradle.kts <<'EOF'
 
           android {
@@ -100,8 +101,8 @@ jobs:
       - name: Preserve distinct APK filename
         run: |
           mkdir -p dist
-          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-SurfaceControl-HDR10-Test.apk
+          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-HDR10-Orientation-Diagnostics.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: Reflite-SurfaceControl-HDR10-Test-APK
-          path: dist/Reflite-SurfaceControl-HDR10-Test.apk
+          name: Reflite-HDR10-Orientation-Diagnostics-APK
+          path: dist/Reflite-HDR10-Orientation-Diagnostics.apk
