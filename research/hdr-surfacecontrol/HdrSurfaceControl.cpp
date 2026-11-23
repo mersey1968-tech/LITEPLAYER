@@ -3,6 +3,7 @@
 #include <android/hardware_buffer.h>
 #include <android/surface_control.h>
 #include <android/data_space.h>
+#include <android/hdr_metadata.h>
 #include <android/log.h>
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
@@ -43,6 +44,7 @@ struct Layer {
     int displayed = -1;
     int sent = 0;
     uint64_t submittedFrames = 0;
+    bool hdrMetadataSet = false;
     std::array<Slot,3> slots;
 };
 void onPreviousReleased(void* context, ASurfaceTransactionStats*) {
@@ -172,6 +174,21 @@ Java_com_example_liteplayer_HdrSurfaceControl_present(JNIEnv*,jclass,jlong ptr) 
     auto* tx=ASurfaceTransaction_create();
     ASurfaceTransaction_setBuffer(tx,layer->sc,layer->slots[next].hw,-1);
     ASurfaceTransaction_setBufferDataSpace(tx,layer->sc,ADATASPACE_BT2020_PQ);
+    // Experimental synthetic mastering information for SDR->HDR expansion.
+    // Primaries describe BT.2020, not an actual physical mastering monitor.
+    AHdrMetadata_smpte2086 mastering{};
+    mastering.displayPrimaryRed = {0.708f, 0.292f};
+    mastering.displayPrimaryGreen = {0.170f, 0.797f};
+    mastering.displayPrimaryBlue = {0.131f, 0.046f};
+    mastering.whitePoint = {0.3127f, 0.3290f};
+    mastering.maxLuminance = 1000.0f;
+    mastering.minLuminance = 0.005f;
+    AHdrMetadata_cta861_3 light{};
+    light.maxContentLightLevel = 1000.0f;
+    light.maxFrameAverageLightLevel = 203.0f;
+    ASurfaceTransaction_setHdrMetadata_smpte2086(tx,layer->sc,&mastering);
+    ASurfaceTransaction_setHdrMetadata_cta861_3(tx,layer->sc,&light);
+    layer->hdrMetadataSet = true;
     ARect source{0,0,layer->width,layer->height};
     ARect dest{0,0,layer->width,layer->height};
     ASurfaceTransaction_setGeometry(tx,layer->sc,source,dest,0);
@@ -211,6 +228,9 @@ Java_com_example_liteplayer_HdrSurfaceControl_snapshot(JNIEnv* env,jclass,jlong 
         " (10-bit R10G10B10A2 requested)" +
         "\\nBuffer size=" + std::to_string(d.width) + " x " + std::to_string(d.height) +
         "\\nRequested dataspace=BT.2020/PQ" +
+        "\\nHDR metadata attached=" + std::string(layer->hdrMetadataSet ? "yes" : "no") +
+        "\\nSMPTE2086 synthetic 1000nit BT2020 / CTA MaxCLL 1000 MaxFALL 203" +
+        "\\nActual HDMI HDR output: NOT observable from this API" +
         "\\nGPU=OpenGL ES, no Vulkan";
     LOGI("%s",result.c_str());
     return env->NewStringUTF(result.c_str());
