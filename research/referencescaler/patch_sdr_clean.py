@@ -40,8 +40,8 @@ replace_once(
     '            val gpu = ReferenceScalerView(this, false)'
 )
 begin = s.index('            if (referenceVulkanEnabled) {')
-end = s.index('\n        }\n    }\n\n', begin)
-s = s[:begin] + s[end:]
+end = s.index('    private lateinit var openButton', begin)
+s = s[:begin] + '        }\n    }\n' + s[end:]
 replace_once(
     '        val surface = (if (referenceVulkanEnabled) vulkanHdrView?.holder?.surface else scalerView?.holder?.surface) ?: (playerView.videoSurfaceView as? SurfaceView)?.holder?.surface',
     '        val surface = scalerView?.holder?.surface ?: (playerView.videoSurfaceView as? SurfaceView)?.holder?.surface'
@@ -63,8 +63,6 @@ replace_once(
 )
 # PlayerView's subtitles are in the app window. Ensure its normal UI remains above
 # the GPU SurfaceView; a media overlay SurfaceView can hide every subtitle cue.
-print("DEBUG MAIN declarations:", [(v, s.find(v)) for v in ("private lateinit var openButton", "private var smbAccess", "private lateinit var homePanel", "private lateinit var subtitleButton")])
-print("DEBUG MAIN first 210 lines:", "\\n".join(s.splitlines()[:210]))
 main.write_text(s)
 
 renderer = Path("proj/app/src/main/java/com/example/liteplayer/ReferenceScalerView.kt")
