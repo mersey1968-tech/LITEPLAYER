@@ -63,6 +63,8 @@ jobs:
           PY
       - name: Apply stable neural SDR, subtitle overlay and persistent setting fixes
         run: python3 research/referencescaler/patch_sdr_clean.py
+      - name: Render subtitles above neural surface
+        run: python3 research/referencescaler/patch_subtitles_overlay.py
       - uses: android-actions/setup-android@v3
         with:
           packages: "platform-tools"
