@@ -1,7 +1,7 @@
-name: Reflite HDR10 SurfaceControl orientation and diagnostics
+name: Reflite HDR10 SurfaceControl static metadata probe
 on:
   push:
-    branches: [reflite-hdr-orientation-diagnostics]
+    branches: [reflite-hdr-static-metadata-probe]
   workflow_dispatch:
 jobs:
   build:
@@ -101,8 +101,8 @@ jobs:
       - name: Preserve distinct APK filename
         run: |
           mkdir -p dist
-          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-HDR10-Orientation-Diagnostics.apk
+          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-HDR10-Static-Metadata-Probe.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: Reflite-HDR10-Orientation-Diagnostics-APK
-          path: dist/Reflite-HDR10-Orientation-Diagnostics.apk
+          name: Reflite-HDR10-Static-Metadata-Probe-APK
+          path: dist/Reflite-HDR10-Static-Metadata-Probe.apk
