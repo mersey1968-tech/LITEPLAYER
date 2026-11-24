@@ -1,7 +1,7 @@
-name: Reflite GL Cache
+name: Reflite Reuse Draw
 on:
   push:
-    branches: [reflite-v2-gl-cache]
+    branches: [reflite-v2-reuse-draw]
   workflow_dispatch:
 jobs:
   build:
@@ -98,6 +98,8 @@ jobs:
         run: python3 research/fsrcnnx/patch_completed_frame_contrast.py
       - name: Cache shader locations and reduce redundant viewport updates
         run: python3 research/fsrcnnx/patch_gl_cache.py
+      - name: Reuse duplicate neural inference and cache scalar uniform values
+        run: python3 research/fsrcnnx/patch_reuse_draw.py
       - uses: android-actions/setup-android@v3
         with:
           packages: "platform-tools"
@@ -114,8 +116,8 @@ jobs:
       - name: Preserve distinct APK filename
         run: |
           mkdir -p dist
-          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-GL-Cache.apk
+          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-Reuse-Draw.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: Reflite-GL-Cache-APK
-          path: dist/Reflite-GL-Cache.apk
+          name: Reflite-Reuse-Draw-APK
+          path: dist/Reflite-Reuse-Draw.apk
