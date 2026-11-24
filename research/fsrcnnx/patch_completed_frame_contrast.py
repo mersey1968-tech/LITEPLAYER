@@ -17,17 +17,26 @@ s=s[:a]+"""                        activePlayer.playWhenReady = true
                     if (fmt.height > 800) {
                         gpu.onFirstNeuralFrame = {
                             gpu.onFirstNeuralFrame = null
-                            if (player === activePlayer && scalerView === gpu &&
-                                referenceScalerEnabled && !isFinishing &&
-                                activePlayer.playWhenReady) {
-                                val fps = fmt.frameRate.takeIf { it > 0f }
-                                    ?: videoFps.takeIf { it > 0f } ?: 24f
-                                val distance = (6000.0 / fps).toLong().coerceAtLeast(1L)
-                                val position = activePlayer.currentPosition
-                                if (position > 0L) {
-                                    activePlayer.seekTo((position - distance).coerceAtLeast(0L))
+                            val fps = fmt.frameRate.takeIf { it > 0f }
+                                ?: videoFps.takeIf { it > 0f } ?: 24f
+                            val distance = (6000.0 / fps).toLong().coerceAtLeast(1L)
+                            val handler = android.os.Handler(android.os.Looper.getMainLooper())
+                            val deadline = android.os.SystemClock.uptimeMillis() + 10000L
+                            val rewindWhenReady = object : Runnable {
+                                override fun run() {
+                                    if (player !== activePlayer || scalerView !== gpu ||
+                                        !referenceScalerEnabled || isFinishing ||
+                                        android.os.SystemClock.uptimeMillis() >= deadline) return
+                                    val position = activePlayer.currentPosition
+                                    if (activePlayer.playWhenReady && activePlayer.isPlaying &&
+                                        position >= distance) {
+                                        activePlayer.seekTo(position - distance)
+                                    } else {
+                                        handler.postDelayed(this, 40L)
+                                    }
                                 }
                             }
+                            rewindWhenReady.run()
                         }"""+s[b:]
 # Remove the temporary pause on surface creation; retain the original
 # play intent checks and surface fallback behavior.
