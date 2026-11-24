@@ -1,7 +1,7 @@
-name: Reflite V2 trained 16-channel neural engine
+name: Reflite V2 warmup enhanced neural detail and deeper blacks
 on:
   push:
-    branches: [reflite-v2-16channel-720p]
+    branches: [reflite-v2-warmup-detail-test]
   workflow_dispatch:
 jobs:
   build:
@@ -80,6 +80,10 @@ jobs:
         run: python3 research/fsrcnnx/patch_playback_and_real_detail.py
       - name: Enable more capable FSRCNNX 16-channel trained model for 540p and 720p
         run: python3 research/fsrcnnx/patch_v2_16channel.py
+      - name: Prime neural shaders and refine 720p detail and microcontrast
+        run: python3 research/fsrcnnx/patch_v2_warmup_detail.py
+      - name: Improve local black depth without clipping shadows
+        run: python3 research/fsrcnnx/patch_v2_richer_blacks.py
       - uses: android-actions/setup-android@v3
         with:
           packages: "platform-tools"
@@ -99,5 +103,5 @@ jobs:
           cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: Reflite-V2-16Channel-APK
+          name: Reflite-V2-Warmup-Depth-APK
           path: dist/Reflite.apk
