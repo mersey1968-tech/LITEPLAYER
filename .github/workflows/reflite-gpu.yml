@@ -1,7 +1,7 @@
-name: Reflite Natural Depth AFR 25 fps to 50 Hz
+name: Reflite Neural RGBA16F Memory Reuse
 on:
   push:
-    branches: [reflite-v2-naturaldepth-afr50]
+    branches: [reflite-v2-gpu-buffer-reuse]
   workflow_dispatch:
 jobs:
   build:
@@ -88,6 +88,8 @@ jobs:
         run: python3 research/fsrcnnx/patch_v2_picture_depth_720.py
       - name: Correct 25 fps frame rate matching to 50 Hz without modifying picture quality
         run: python3 research/referencescaler/patch_afr_25_to_50.py
+      - name: Reuse RGBA16F neural framebuffer targets after dependency last-use
+        run: python3 research/fsrcnnx/patch_dependency_buffer_reuse.py
       - uses: android-actions/setup-android@v3
         with:
           packages: "platform-tools"
@@ -107,5 +109,5 @@ jobs:
           cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: Reflite-NaturalDepth-AFR50-APK
+          name: Reflite-GPU-Memory-Reuse-APK
           path: dist/Reflite.apk
