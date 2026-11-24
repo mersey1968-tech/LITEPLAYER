@@ -1,7 +1,7 @@
-name: Reflite Completed Frame Contrast
+name: Reflite Six Frame Resync
 on:
   push:
-    branches: [reflite-v2-completed-frame-contrast]
+    branches: [reflite-v2-six-frame-resync]
   workflow_dispatch:
 jobs:
   build:
@@ -94,7 +94,7 @@ jobs:
         run: python3 research/fsrcnnx/patch_1080_startup_surface_sync.py
       - name: Apply precision sync and preserve neural texture filtering
         run: python3 research/fsrcnnx/patch_precision_sync.py
-      - name: Complete first neural frame before resume and add mild contrast
+      - name: One-time backward seek after neural activation; retain contrast
         run: python3 research/fsrcnnx/patch_completed_frame_contrast.py
       - uses: android-actions/setup-android@v3
         with:
@@ -112,8 +112,8 @@ jobs:
       - name: Preserve distinct APK filename
         run: |
           mkdir -p dist
-          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-Completed-Frame-Contrast.apk
+          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-Six-Frame-Resync.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: Reflite-Completed-Frame-Contrast-APK
-          path: dist/Reflite-Completed-Frame-Contrast.apk
+          name: Reflite-Six-Frame-Resync-APK
+          path: dist/Reflite-Six-Frame-Resync.apk
