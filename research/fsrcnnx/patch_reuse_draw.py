@@ -14,9 +14,7 @@ s=s.replace("GLES30.glUniform2f(uniformLocation(", "setUniform2f(")
 import re
 s=re.sub(r'(setUniform[12][if]\([^\n]*?),("(?:u_|u)[^"\n]*"(?:\+name)?)\),',r'\1,\2,',s)
 # Verify every rewritten call lost the inner closing parenthesis.
-for line in s.splitlines():
-    if "setUniform" in line:
-        assert line.count("(")==line.count(")"),line
+assert not re.search(r'setUniform[12][if]\([^\n]*?"(?:u_|u)[^"\n]*"(?:\+name)?\),',s), "Unconverted nested uniform location"
 anchor="    private val stages = mutableListOf<Stage>()"
 s=once(s,anchor,anchor+"""
     private val scalarUniforms = HashMap<Int, HashMap<Int, Long>>()
