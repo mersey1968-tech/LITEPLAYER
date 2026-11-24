@@ -1,6 +1,4 @@
-"""Wait for first neural GPU completion before restoring playback.
-Keep existing shader model and adaptive resolution behavior.
-"""
+"""One-time backward seek following active neural startup; retain contrast."""
 from pathlib import Path
 root=Path("proj/app/src/main/java/com/example/liteplayer")
 def once(s,a,b):
@@ -8,30 +6,37 @@ def once(s,a,b):
     return s.replace(a,b,1)
 p=root/"ReferenceScalerView.kt"
 s=p.read_text()
-s=once(s,"""                firstNeuralFrameReported = true
-                // Submitted on the GL thread; callback is not a display-present guarantee.
-                post { onFirstNeuralFrame?.invoke() }""","""                // One startup-only GPU drain, not a per-frame stall.
-                // Completion is not proof of physical display scanout.
-                if (srcH > 800) GLES30.glFinish()
-                firstNeuralFrameReported = true
-                post { onFirstNeuralFrame?.invoke() }""")
+s=once(s,"                // Submitted on the GL thread; callback is not a display-present guarantee.","                if (srcH > 800) GLES30.glFinish()")
 p.write_text(s)
 p=root/"MainActivity.kt"
 s=p.read_text()
-s=once(s,"""                            .postDelayed({ resume() }, 800L)""","""                            .postDelayed({
-                                if (waitingForNeuralFrame && player === activePlayer &&
-                                    scalerView === gpu && referenceScalerEnabled && !isFinishing) {
-                                    // If the paused decoder cannot deliver a frame,
-                                    // restore direct playback instead of resuming
-                                    // audio against an unready neural renderer.
-                                    waitingForNeuralFrame = false
-                                    referenceScalerEnabled = false
-                                    applyRefliteScaler()
-                                    activePlayer.playWhenReady = true
-                                    Toast.makeText(this, "Neural startup timed out; original playback restored",
-                                        Toast.LENGTH_SHORT).show()
+a=s.index("                        // A paused Media3 renderer can submit")
+b=s.index("                            .postDelayed({ resume() }, 800L)",a)+len("                            .postDelayed({ resume() }, 800L)")
+s=s[:a]+"""                        activePlayer.playWhenReady = true
+                    }
+                    if (fmt.height > 800) {
+                        gpu.onFirstNeuralFrame = {
+                            gpu.onFirstNeuralFrame = null
+                            if (player === activePlayer && scalerView === gpu &&
+                                referenceScalerEnabled && !isFinishing &&
+                                activePlayer.playWhenReady) {
+                                val fps = fmt.frameRate.takeIf { it > 0f }
+                                    ?: videoFps.takeIf { it > 0f } ?: 24f
+                                val distance = (6000.0 / fps).toLong().coerceAtLeast(1L)
+                                val position = activePlayer.currentPosition
+                                if (position > 0L) {
+                                    activePlayer.seekTo((position - distance).coerceAtLeast(0L))
                                 }
-                            }, 5000L)""")
+                            }
+                        }"""+s[b:]
+# Remove the temporary pause on surface creation; retain the original
+# play intent checks and surface fallback behavior.
+s=once(s,"""            if (resume1080AfterSurface) {
+                activePlayer.playWhenReady = false
+                android.util.Log.i("Reflite Startup",
+                    "1080p: suspend play clock until neural decoder Surface is attached")
+            }
+""","")
 p.write_text(s)
 p=root/"FsrcnnxPipeline.kt"
 s=p.read_text()
@@ -49,4 +54,4 @@ s=once(s,"""                reconstructed*=1.0-shadowDepth*shadowRange;
                 }
                 outColor=vec4(uHdr>0.5?sdrToHdr10(reconstructed):reconstructed,1.);""")
 p.write_text(s)
-print("Completed-frame startup gate and modest SDR contrast curve staged.")
+print("One-time six-frame rewind and approved contrast staged.")
