@@ -65,3 +65,84 @@ s=once(s,"""                reconstructed*=1.0-shadowDepth*shadowRange;
                 outColor=vec4(uHdr>0.5?sdrToHdr10(reconstructed):reconstructed,1.);""")
 p.write_text(s)
 print("One-time six-frame rewind and approved contrast staged.")
+
+# Delay automatic 1080p activation until the direct decoder path has
+# rendered and its playback clock has advanced. Never write preferences.
+p=root/"MainActivity.kt"
+s=p.read_text()
+s=once(s,"    private var referenceScalerEnabled = false","""    private var referenceScalerEnabled = false
+    private var neuralStartupPlayer: Player? = null
+    private var neuralStartupScheduled = false
+    private var neuralStartupFirstFrame = false
+    private var neuralStartupGeneration = 0
+
+    private fun maybeActivateStartupNeural() {
+        val active = player ?: return
+        if (neuralStartupPlayer !== active || !neuralStartupFirstFrame ||
+            neuralStartupScheduled || !referenceScalerEnabled ||
+            !allowedForReferenceScaler(resolvedScalerFormat())) return
+        val fmt = resolvedScalerFormat() ?: return
+        if (fmt.height <= 800) return
+        neuralStartupScheduled = true
+        val generation = neuralStartupGeneration
+        val handler = android.os.Handler(android.os.Looper.getMainLooper())
+        var firstPlayingPosition = -1L
+        val attempt = object : Runnable {
+            override fun run() {
+                if (neuralStartupGeneration != generation ||
+                    player !== active || neuralStartupPlayer !== active ||
+                    !referenceScalerEnabled || isFinishing) return
+                if (active.isPlaying && active.playbackState == Player.STATE_READY) {
+                    val position = active.currentPosition
+                    if (firstPlayingPosition < 0L || position < firstPlayingPosition)
+                        firstPlayingPosition = position
+                    if (position - firstPlayingPosition >= 500L) {
+                        neuralStartupPlayer = null
+                        neuralStartupScheduled = false
+                        applyRefliteScaler()
+                        return
+                    }
+                } else {
+                    firstPlayingPosition = -1L
+                }
+                handler.postDelayed(this, 40L)
+            }
+        }
+        handler.post(attempt)
+    }""")
+s=once(s,"                referenceScalerEnabled = which == 1","""                neuralStartupGeneration++
+                neuralStartupPlayer = null
+                neuralStartupScheduled = false
+                referenceScalerEnabled = which == 1""")
+s=once(s,"        val activePlayer = player\n        if (!referenceScalerEnabled", """        val activePlayer = player
+        if (activePlayer != null && neuralStartupPlayer === activePlayer &&
+            referenceScalerEnabled && allowedForReferenceScaler(resolvedScalerFormat()) &&
+            (resolvedScalerFormat()?.height ?: 0) > 800 && scalerView == null) {
+            maybeActivateStartupNeural()
+            return
+        }
+        if (!referenceScalerEnabled""")
+s=once(s,"        override fun onRenderedFirstFrame() {","""        override fun onRenderedFirstFrame() {
+            if (neuralStartupPlayer === player && player != null) {
+                neuralStartupFirstFrame = true
+                maybeActivateStartupNeural()
+            }""")
+# Assign on the first track callback, before any neural surface is created.
+s=once(s,"    private fun startPlayer() {\n        val u = uri ?: return\n        if (player != null) return","""    private fun startPlayer() {
+        val u = uri ?: return
+        if (player != null) return
+        neuralStartupGeneration++
+        neuralStartupPlayer = null
+        neuralStartupScheduled = false
+        neuralStartupFirstFrame = false
+        neuralStartupAwaitingPlayer = referenceScalerEnabled""")
+s=once(s,"    private var neuralStartupGeneration = 0","    private var neuralStartupGeneration = 0\n    private var neuralStartupAwaitingPlayer = false")
+s=once(s,"            currentVideoFormat = format\n            applyHdr(format)","""            currentVideoFormat = format
+            if (neuralStartupAwaitingPlayer && player != null && format != null) {
+                neuralStartupAwaitingPlayer = false
+                neuralStartupPlayer = player
+            }
+            applyHdr(format)""")
+s=once(s,"                neuralStartupGeneration++\n                neuralStartupPlayer = null","                neuralStartupGeneration++\n                neuralStartupAwaitingPlayer = false\n                neuralStartupPlayer = null")
+p.write_text(s)
+print("Startup direct playback before automatic neural activation; preferences untouched.")
