@@ -23,16 +23,9 @@ b='''    private var presentedFrames = 0
 assert s.count(a)==1, "startup fields anchor missing"
 s=s.replace(a,b,1)
 
-a='''            if (newFrame) {
-                surfaceTexture?.updateTexImage()
-                surfaceTexture?.getTransformMatrix(transform)
-                hasVideoFrame = true
-
-            }
-            if (!hasVideoFrame) return
-
-            val workW = (srcW * neuralScale).toInt().coerceAtLeast(1)'''
-b='''            if (newFrame) {
+begin=s.index('''            if (newFrame) {''',s.index('''    override fun onDrawFrame'''))
+end=s.index('''            val workW =''',begin)
+s=s[:begin]+'''            if (newFrame) {
                 val now = System.nanoTime()
                 if (startupNs == 0L) {
                     startupNs = now
@@ -57,15 +50,11 @@ b='''            if (newFrame) {
                 surfaceTexture?.updateTexImage()
                 surfaceTexture?.getTransformMatrix(transform)
                 hasVideoFrame = true
-
             }
             if (!hasVideoFrame) return
-            // Avoid re-running neural inference on an unchanged video image.
             if (!newFrame && measuredStartupFrames > 0) return
+''' +s[end:]
 
-            val workW = (srcW * neuralScale).toInt().coerceAtLeast(1)'''
-assert s.count(a)==1, "frame receipt anchor missing"
-s=s.replace(a,b,1)
 a='''            val sampleGpu = newFrame && (++presentedFrames % 8 == 0)
             val start = if (sampleGpu) System.nanoTime() else 0L'''
 b='''            presentedFrames++
