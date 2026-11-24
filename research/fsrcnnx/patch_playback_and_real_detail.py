@@ -52,11 +52,6 @@ b='''        saveProgress()
         } else {'''
 assert s.count(a)==1,"Cannot patch external Back stop"
 s=s.replace(a,b,1)
-a='''        if (launchedExternally) {
-            val pos = player?.currentPosition ?: position'''
-b='''        if (launchedExternally) {
-            val pos = player?.currentPosition ?: position'''
-# No modification to result serialization; releasePlayer retains position.
-assert s.count(a)==1,"Cannot find existing Plezy result handler"
+# Existing Plezy result intent remains unchanged; releasePlayer retains position.
 p.write_text(s)
 print("Reflite hotfix staged: original GPU fallback + learned-detail emphasis + external synchronous stop; existing microcontrast preserved.")
