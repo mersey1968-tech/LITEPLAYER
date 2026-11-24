@@ -1,7 +1,7 @@
-name: Reflite Visible Trace
+name: Reflite Sync Button
 on:
   push:
-    branches: [reflite-v2-visible-trace]
+    branches: [reflite-v2-sync-button]
   workflow_dispatch:
 jobs:
   build:
@@ -98,6 +98,8 @@ jobs:
         run: python3 research/fsrcnnx/patch_clock_trace.py
       - name: Add TV-readable timing snapshots
         run: python3 research/fsrcnnx/patch_visible_trace.py
+      - name: Add independent A/V Sync control
+        run: python3 research/fsrcnnx/patch_sync_button.py
       - uses: android-actions/setup-android@v3
         with:
           packages: "platform-tools"
@@ -114,8 +116,8 @@ jobs:
       - name: Preserve distinct APK filename
         run: |
           mkdir -p dist
-          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-Visible-Trace.apk
+          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-Sync-Button.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: Reflite-Visible-Trace-APK
-          path: dist/Reflite-Visible-Trace.apk
+          name: Reflite-Sync-Button-APK
+          path: dist/Reflite-Sync-Button.apk
