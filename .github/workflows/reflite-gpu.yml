@@ -1,7 +1,7 @@
-name: Reflite V2 warmup enhanced neural detail and deeper blacks
+name: Reflite Smooth Start on Shield 16-channel
 on:
   push:
-    branches: [reflite-v2-warmup-detail-test]
+    branches: [reflite-v2-smooth-start-diagnostics]
   workflow_dispatch:
 jobs:
   build:
@@ -84,6 +84,8 @@ jobs:
         run: python3 research/fsrcnnx/patch_v2_warmup_detail.py
       - name: Improve local black depth without clipping shadows
         run: python3 research/fsrcnnx/patch_v2_richer_blacks.py
+      - name: Smooth initial frame pacing and diagnose startup timing
+        run: python3 research/fsrcnnx/patch_v2_smooth_start.py
       - uses: android-actions/setup-android@v3
         with:
           packages: "platform-tools"
@@ -103,5 +105,5 @@ jobs:
           cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: Reflite-V2-Warmup-Depth-APK
+          name: Reflite-SmoothStart-APK
           path: dist/Reflite.apk
