@@ -27,10 +27,10 @@ a='''            if (newFrame) {
                 surfaceTexture?.updateTexImage()
                 surfaceTexture?.getTransformMatrix(transform)
                 hasVideoFrame = true
-                decoderFrameCount++
+
             }
             if (!hasVideoFrame) return
-            glDrawCount++
+
             val workW = (srcW * neuralScale).toInt().coerceAtLeast(1)'''
 b='''            if (newFrame) {
                 val now = System.nanoTime()
@@ -57,14 +57,12 @@ b='''            if (newFrame) {
                 surfaceTexture?.updateTexImage()
                 surfaceTexture?.getTransformMatrix(transform)
                 hasVideoFrame = true
-                decoderFrameCount++
+
             }
             if (!hasVideoFrame) return
-            // GLSurfaceView is WHEN_DIRTY. A controls or size redraw without
-            // a new SurfaceTexture image should not execute 26 neural passes
-            // again. Existing video pixels stay in the window front buffer.
+            // Avoid re-running neural inference on an unchanged video image.
             if (!newFrame && measuredStartupFrames > 0) return
-            glDrawCount++
+
             val workW = (srcW * neuralScale).toInt().coerceAtLeast(1)'''
 assert s.count(a)==1, "frame receipt anchor missing"
 s=s.replace(a,b,1)
