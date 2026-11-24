@@ -1,7 +1,7 @@
-name: Reflite Clock Trace
+name: Reflite Visible Trace
 on:
   push:
-    branches: [reflite-v2-clock-trace]
+    branches: [reflite-v2-visible-trace]
   workflow_dispatch:
 jobs:
   build:
@@ -96,6 +96,8 @@ jobs:
         run: python3 research/fsrcnnx/patch_precision_sync.py
       - name: Instrument both playback clocks without changing scheduling
         run: python3 research/fsrcnnx/patch_clock_trace.py
+      - name: Add TV-readable timing snapshots
+        run: python3 research/fsrcnnx/patch_visible_trace.py
       - uses: android-actions/setup-android@v3
         with:
           packages: "platform-tools"
@@ -112,8 +114,8 @@ jobs:
       - name: Preserve distinct APK filename
         run: |
           mkdir -p dist
-          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-Clock-Trace.apk
+          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-Visible-Trace.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: Reflite-Clock-Trace-APK
-          path: dist/Reflite-Clock-Trace.apk
+          name: Reflite-Visible-Trace-APK
+          path: dist/Reflite-Visible-Trace.apk
