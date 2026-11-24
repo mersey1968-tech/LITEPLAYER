@@ -56,7 +56,8 @@ s=once(s,"""                reconstructed*=1.0-shadowDepth*shadowRange;
                 // bounded by available RGB headroom to avoid extra clipping.
                 if (uHdr < 0.5) {
                     float tone=dot(reconstructed,vec3(.2126,.7152,.0722));
-                    float delta=.12*tone*(1.0-tone)*(2.0*tone-1.0);
+                    float strength=mix(.12,.09,smoothstep(800.0,1000.0,uOriginalFrameHeight));
+                    float delta=strength*tone*(1.0-tone)*(2.0*tone-1.0);
                     float lo=min(reconstructed.r,min(reconstructed.g,reconstructed.b));
                     float hi=max(reconstructed.r,max(reconstructed.g,reconstructed.b));
                     reconstructed+=vec3(clamp(delta,-lo,1.0-hi));
