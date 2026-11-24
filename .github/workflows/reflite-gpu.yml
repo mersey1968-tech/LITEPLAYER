@@ -1,7 +1,7 @@
-name: Reflite 1080p Neural Startup Surface Sync
+name: Reflite Precision Sync
 on:
   push:
-    branches: [reflite-v2-1080p-startup-sync]
+    branches: [reflite-v2-precision-sync]
   workflow_dispatch:
 jobs:
   build:
@@ -92,6 +92,8 @@ jobs:
         run: python3 research/fsrcnnx/patch_dependency_buffer_reuse.py
       - name: Synchronize 1080p neural surface readiness without changing 720p or audio sinks
         run: python3 research/fsrcnnx/patch_1080_startup_surface_sync.py
+      - name: Apply precision sync and preserve neural texture filtering
+        run: python3 research/fsrcnnx/patch_precision_sync.py
       - uses: android-actions/setup-android@v3
         with:
           packages: "platform-tools"
@@ -108,8 +110,8 @@ jobs:
       - name: Preserve distinct APK filename
         run: |
           mkdir -p dist
-          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite.apk
+          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-Precision-Sync.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: Reflite-1080p-StartupSync-APK
-          path: dist/Reflite.apk
+          name: Reflite-Precision-Sync-APK
+          path: dist/Reflite-Precision-Sync.apk
