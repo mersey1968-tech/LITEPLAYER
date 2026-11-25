@@ -32,7 +32,10 @@ void main(){
 vec3 rgb=texture(original,uv).rgb;
 float y=dot(rgb,vec3(.2126,.7152,.0722));
 float newY=texture(restored,uv).r;
-color=vec4(clamp(rgb+vec3(newY-y),0.,1.),1.);
+float delta=newY-y;
+float strength=mix(2.5,1.25,smoothstep(.035,.12,abs(delta)));
+float enhanced=clamp(y+delta*strength,0.,1.);
+color=vec4(clamp(rgb+vec3(enhanced-y),0.,1.),1.);
 }
 """)
     private val programs=IntArray(8){i->link(intArrayOf(compile(G.GL_COMPUTE_SHADER,context.assets.open("reflite/art"+i+".comp").bufferedReader().use{it.readText()})))}
