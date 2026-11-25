@@ -65,7 +65,7 @@ color=vec4(clamp(rgb+vec3(newY-y),0.,1.),1.);
             G.glTexParameteri(G.GL_TEXTURE_2D,G.GL_TEXTURE_MAG_FILTER,G.GL_LINEAR)
             G.glTexParameteri(G.GL_TEXTURE_2D,G.GL_TEXTURE_WRAP_S,G.GL_CLAMP_TO_EDGE)
             G.glTexParameteri(G.GL_TEXTURE_2D,G.GL_TEXTURE_WRAP_T,G.GL_CLAMP_TO_EDGE)
-            G.glTexStorage2D(G.GL_TEXTURE_2D,1,if(i==0)G.GL_RGBA8 else G.GL_RGBA16F,if(i in 1..3 || i==5)2*w else w,if(i==5)2*h else h)
+            G.glTexStorage2D(G.GL_TEXTURE_2D,1,if(i==0)G.GL_RGBA8 else G.GL_RGBA16F,if(i in 1..3 || i==5)2*w else w,if(i in 1..3 || i==5)2*h else h)
         }
         G.glBindFramebuffer(G.GL_FRAMEBUFFER,fbo[0])
         G.glFramebufferTexture2D(G.GL_FRAMEBUFFER,G.GL_COLOR_ATTACHMENT0,G.GL_TEXTURE_2D,images[0],0)
