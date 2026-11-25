@@ -103,6 +103,8 @@ void main(){
             G.glBindBuffer(G.GL_SHADER_STORAGE_BUFFER,buffers[i])
             G.glBufferData(G.GL_SHADER_STORAGE_BUFFER,w*h*6*8,null,G.GL_DYNAMIC_DRAW)
         }
+        G.glDeleteTextures(2,textures,0)
+        G.glGenTextures(2,textures,0)
         for(i in 0..1){
             G.glBindTexture(G.GL_TEXTURE_2D,textures[i])
             G.glTexParameteri(G.GL_TEXTURE_2D,G.GL_TEXTURE_MIN_FILTER,G.GL_LINEAR)
@@ -110,12 +112,16 @@ void main(){
             G.glTexParameteri(G.GL_TEXTURE_2D,G.GL_TEXTURE_WRAP_S,G.GL_CLAMP_TO_EDGE)
             G.glTexParameteri(G.GL_TEXTURE_2D,G.GL_TEXTURE_WRAP_T,G.GL_CLAMP_TO_EDGE)
             if(i==0) G.glTexImage2D(G.GL_TEXTURE_2D,0,G.GL_RGBA8,w,h,0,G.GL_RGBA,G.GL_UNSIGNED_BYTE,null)
-            else G.glTexImage2D(G.GL_TEXTURE_2D,0,G.GL_RGBA16F,w*2,h*2,0,G.GL_RGBA,G.GL_HALF_FLOAT,null)
+            else G.glTexStorage2D(G.GL_TEXTURE_2D,1,G.GL_RGBA16F,w*2,h*2)
         }
         G.glBindFramebuffer(G.GL_FRAMEBUFFER,fbo[0])
         G.glFramebufferTexture2D(G.GL_FRAMEBUFFER,G.GL_COLOR_ATTACHMENT0,G.GL_TEXTURE_2D,textures[0],0)
         check(G.glCheckFramebufferStatus(G.GL_FRAMEBUFFER)==G.GL_FRAMEBUFFER_COMPLETE)
         check(G.glGetError()==G.GL_NO_ERROR){"Ghost Stream allocation failed"}
+    }
+    private fun checkGl(stage:String){
+        val error=G.glGetError()
+        check(error==G.GL_NO_ERROR){"Ghost $stage GL 0x"+Integer.toHexString(error)}
     }
     private fun layer(n:Int,input:Int,output:Int,skip:Int,mode:Int){
         val (offset,ig,og)=layers[n]
@@ -126,7 +132,9 @@ void main(){
         G.glUniform1i(G.glGetUniformLocation(compute,"inGroups"),ig)
         G.glUniform1i(G.glGetUniformLocation(compute,"outGroups"),og)
         G.glUniform1i(G.glGetUniformLocation(compute,"mode"),mode)
+        checkGl("layer $n bindings")
         G.glDispatchCompute((w+7)/8,(h+7)/8,og)
+        checkGl("layer $n dispatch")
         G.glMemoryBarrier(G.GL_SHADER_STORAGE_BARRIER_BIT or G.GL_SHADER_IMAGE_ACCESS_BARRIER_BIT or G.GL_TEXTURE_FETCH_BARRIER_BIT)
     }
     fun render(video:Int,matrix:FloatArray,width:Int,height:Int,outW:Int,outH:Int,newFrame:Boolean){
@@ -142,7 +150,9 @@ void main(){
             G.glActiveTexture(G.GL_TEXTURE0);G.glBindTexture(G.GL_TEXTURE_2D,textures[0])
             G.glUniform1i(G.glGetUniformLocation(compute,"sourceRgb"),0)
             G.glUniform2i(G.glGetUniformLocation(compute,"size"),w,h)
+            checkGl("pre-image setup")
             G.glBindImageTexture(0,textures[1],0,false,0,G.GL_WRITE_ONLY,G.GL_RGBA16F)
+            checkGl("image binding")
             layer(0,2,1,3,0)
             var src=1
             for(i in 0..3){
@@ -158,7 +168,7 @@ void main(){
             }
             layer(9,src,2,1,4)
             layer(10,2,1,3,3)
-            check(G.glGetError()==G.GL_NO_ERROR){"Ghost Stream dispatch failed"}
+            checkGl("final barrier")
             valid=true
         }
         G.glBindFramebuffer(G.GL_FRAMEBUFFER,0);G.glViewport(0,0,outW,outH);G.glUseProgram(displayProgram)
