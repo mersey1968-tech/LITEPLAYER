@@ -1,7 +1,7 @@
-name: Reflite RAVU Zoom
+name: Reflite RAVU Cached
 on:
   push:
-    branches: [reflite-ravu-zoom-r3]
+    branches: [reflite-ravu-cached]
   workflow_dispatch:
 jobs:
   build:
@@ -165,7 +165,27 @@ jobs:
           # The RGB luma coefficients may precede LUTPOS.
           if "const vec3 color_primary" not in body:
               prefix+="const vec3 color_primary=vec3(0.2126,0.7152,0.0722);\n"
-          (assets/"ravu.frag").write_text(prefix+body+"\nvoid main(){colorOut=hook();}\n")
+          start=body.index("vec3 abd =")
+          end=body.index("float coord_y =",start)
+          classify=body[:end]
+          key_body=classify+"return vec4(coordKey(),0.,0.,1.); }"
+          # Store the discrete class index in two 8-bit channels, avoiding float render-target requirements.
+          key_body=classify+"""
+          float key=(angle*KEY_STRENGTH+strength)*KEY_COHERENCE+coherence;
+          return vec4(mod(key,256.0)/255.0,floor(key/256.0)/255.0,0.0,1.0);
+          }
+          """
+          match=re.search(r"float coord_y = \(\(angle \* ([0-9.]+) \+ strength\) \* ([0-9.]+) \+ coherence\) / ([0-9.]+);",body[end:])
+          assert match,body[end:end+200]
+          qs,qc,qn=match.groups()
+          key_body=key_body.replace("KEY_STRENGTH",qs).replace("KEY_COHERENCE",qc)
+          (assets/"ravu-key.frag").write_text(prefix+key_body+"\nvoid main(){colorOut=hook();}\n")
+          reconstruct=body[:start]+"""
+          vec2 key=texelFetch(uKey,ivec2(clamp(floor(pos),vec2(0.0),uSize-1.0)),0).rg;
+          float coord_y=(floor(key.r*255.0+0.5)+256.0*floor(key.g*255.0+0.5))/KEY_COUNT;
+          """+body[end+len(match.group(0)):]
+          reconstruct=reconstruct.replace("KEY_COUNT",qn)
+          (assets/"ravu.frag").write_text(prefix+"uniform sampler2D uKey;\n"+reconstruct+"\nvoid main(){colorOut=hook();}\n")
           for part in parts[1:]:
               name=part.splitlines()[0].strip()
               index={"ravu_zoom_lut3":0,"ravu_zoom_lut3_ar":1}[name]
@@ -221,8 +241,8 @@ jobs:
       - name: Preserve distinct APK filename
         run: |
           mkdir -p dist
-          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-RAVU.apk
+          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-RAVU-Cached.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: Reflite-RAVU-APK
-          path: dist/Reflite-RAVU.apk
+          name: Reflite-RAVU-Cached-APK
+          path: dist/Reflite-RAVU-Cached.apk
