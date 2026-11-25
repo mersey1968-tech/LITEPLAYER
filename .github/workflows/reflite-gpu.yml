@@ -1,7 +1,7 @@
-name: Reflite Reuse Draw
+name: Reflite 720p Detail Safe
 on:
   push:
-    branches: [reflite-v2-reuse-draw]
+    branches: [reflite-v2-720p-detail-safe]
   workflow_dispatch:
 jobs:
   build:
@@ -100,6 +100,32 @@ jobs:
         run: python3 research/fsrcnnx/patch_gl_cache.py
       - name: Reuse duplicate neural inference and cache scalar uniform values
         run: python3 research/fsrcnnx/patch_reuse_draw.py
+      - name: Strengthen 720p detail and remove unreachable legacy helpers
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          root=Path("proj/app/src/main/java/com/example/liteplayer")
+          def once(s,a,b):
+              assert s.count(a)==1,(a,s.count(a))
+              return s.replace(a,b,1)
+          p=root/"FsrcnnxPipeline.kt"
+          s=p.read_text()
+          s=once(s,"float tvTextureStrength=1.0+0.21*", "float tvTextureStrength=1.0+0.85*")
+          s=once(s,"textureGate,-.024,.024);","textureGate,-mix(.024,.032,1.0-smoothstep(770.0,910.0,uOriginalFrameHeight)),\n                    mix(.024,.032,1.0-smoothstep(770.0,910.0,uOriginalFrameHeight)));")
+          s=once(s,"rgb=mix(rawRgb,weighted/total,0.22*detailProtection);","rgb=mix(rawRgb,weighted/total,mix(0.22,0.08,1.0-smoothstep(770.0,910.0,uOriginalFrameHeight))*detailProtection);")
+          p.write_text(s)
+          p=root/"ReferenceScalerView.kt"
+          s=p.read_text()
+          # Remove only uncalled private methods and constants; preserve
+          # field initialization, frame scheduling and resource lifetimes.
+          start=s.index("    private fun ensureFramebuffer(")
+          end=s.index("    private fun fail(",start)
+          s=s[:start]+s[end:]
+          start=s.index("    companion object {")
+          s=s[:start]+"}\n"
+          p.write_text(s)
+          print("720p detail and dead helpers staged on Reuse Draw; timing unchanged")
+          PY
       - uses: android-actions/setup-android@v3
         with:
           packages: "platform-tools"
@@ -116,8 +142,8 @@ jobs:
       - name: Preserve distinct APK filename
         run: |
           mkdir -p dist
-          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-Reuse-Draw.apk
+          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-720p-DetailSafe.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: Reflite-Reuse-Draw-APK
-          path: dist/Reflite-Reuse-Draw.apk
+          name: Reflite-720p-DetailSafe-APK
+          path: dist/Reflite-720p-DetailSafe.apk
