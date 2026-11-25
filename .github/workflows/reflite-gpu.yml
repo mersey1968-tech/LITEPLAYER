@@ -1,7 +1,7 @@
-name: Reflite GhostStream Detail
+name: Reflite ArtCNN CMP
 on:
   push:
-    branches: [reflite-ghoststream-detail]
+    branches: [reflite-artcnn-cmp]
   workflow_dispatch:
 jobs:
   build:
@@ -126,71 +126,75 @@ jobs:
           p.write_text(s)
           print("720p detail and dead helpers staged on Reuse Draw; timing unchanged")
           PY
-      - name: Install trained Ghost Stream GPU renderer
+      - name: Install trained ArtCNN compression restoration renderer
         run: |
           mkdir -p proj/app/src/main/assets/reflite
-          curl -fL --retry 3 https://raw.githubusercontent.com/AxiomState/ghoststream-benchmark/HEAD/demo/manifest.json -o ghost.json
-          curl -fL --retry 3 https://raw.githubusercontent.com/AxiomState/ghoststream-benchmark/HEAD/demo/weights.bin -o ghost.bin
-          curl -fL --retry 3 https://raw.githubusercontent.com/AxiomState/ghoststream-benchmark/HEAD/LICENSE -o proj/app/src/main/assets/reflite/GhostStream-LICENSE
-          cp research/referencescaler/ghost.comp proj/app/src/main/assets/reflite/
-          cp research/referencescaler/GhostStream.kt proj/app/src/main/java/com/example/liteplayer/
+          curl -fL --retry 3 https://raw.githubusercontent.com/hooke007/mpv_PlayKit/HEAD/portable_config/shaders/ArtCNN/ArtCNN_v0_C4F8_DS_CMP.glsl -o art.glsl
+          cp art.glsl proj/app/src/main/assets/reflite/ArtCNN-original.glsl
+          cp research/referencescaler/ArtCNN.kt proj/app/src/main/java/com/example/liteplayer/
           python3 - <<'PY'
-          import json,struct,math
+          import re
           from pathlib import Path
           root=Path("proj/app/src/main")
           assets=root/"assets/reflite"
-          manifest=json.loads(Path("ghost.json").read_text())
-          raw=Path("ghost.bin").read_bytes()
-          data=struct.unpack("<"+"e"*(len(raw)//2),raw)
-          assert len(data)==47980 and all(math.isfinite(x) for x in data)
-          tensors={}
-          cursor=0
-          for layer in manifest["layers"]:
-              n=layer["numel"]
-              tensors[layer["name"]]=(layer["shape"],data[cursor:cursor+n])
-              cursor+=n
-          assert cursor==len(data)
-          packed=[]
-          layers=[]
-          for name in ["h"]+[f"b.{i}.c{j}" for i in range(4) for j in (1,2)]+["p","t"]:
-              (oc,ic,kh,kw),w=tensors[name+".weight"]
-              _,b=tensors[name+".bias"]
-              assert kh==kw==3 and oc%4==0
-              ig=(ic+3)//4
-              og=oc//4
-              layers.append(f"{len(packed)//4} {ig} {og}")
-              packed.extend(b)
-              for g in range(og):
-                  for i in range(ig):
-                      for ky in range(3):
-                          for kx in range(3):
-                              for o in range(4):
-                                  for c in range(4):
-                                      channel=i*4+c
-                                      packed.append(w[((g*4+o)*ic+channel)*9+ky*3+kx] if channel<ic else 0.)
-          (assets/"ghost.weights").write_bytes(struct.pack("<"+"f"*len(packed),*packed))
-          (assets/"ghost.layers").write_text("\n".join(layers)+"\n")
+          parts=Path("art.glsl").read_text().split("//!DESC ")[1:]
+          assert len(parts)==8
+          for i,part in enumerate(parts):
+              prefix="""#version 310 es
+          precision highp float;
+          precision highp int;
+          layout(local_size_x=8,local_size_y=8) in;
+          layout(rgba16f,binding=0) writeonly uniform highp image2D out_image;
+          uniform highp sampler2D sourceTex;
+          uniform highp sampler2D skipTex;
+          uniform ivec2 size;
+          #define F float
+          #define V4 vec4
+          #define M4 mat4
+          """
+              if i==7:
+                  body="""void main(){
+                      ivec2 p=ivec2(gl_GlobalInvocationID.xy);
+                      if(any(greaterThanEqual(p,2*size)))return;
+                      vec4 v=texelFetch(sourceTex,p/2,0);
+                      float y=v[(1-p.y%2)*2+p.x%2];
+                      imageStore(out_image,p,vec4(clamp(y,0.,1.),0.,0.,1.));
+                  }"""
+              else:
+                  body=part[part.index("const ivec2 ksize"):]
+                  body=body.replace("void hook()", "void main()")
+                  body=body.replace("const ivec2 wg_size = ivec2(gl_WorkGroupSize);","const ivec2 wg_size = ivec2(8);")
+                  body=body.replace("const uvec2 local_xy = gl_LocalInvocationID.xy;","ivec2 local_xy = ivec2(gl_LocalInvocationID.xy);")
+                  body=body.replace("uint y","int y").replace("uint x","int x")
+                  body=body.replace("const ivec2 input_base = (base + ivec2(x,y) - offset)", "ivec2 input_base = clamp(base + ivec2(x,2*local_xy.y+0-y) - offset,ivec2(0),size-1)") if False else body.replace("const ivec2 input_base = (base + ivec2(x,y) - offset)", "ivec2 input_base = clamp(base + ivec2(x,y) - offset,ivec2(0),size-1)")
+                  body=body.replace("const ivec2 output_base","ivec2 output_base")
+                  body=re.sub(r"const (F|V4) inp_(\d)_(\d)_(\d) = inp\[(\d)\]\[local_xy.y \+ (\d)\]",lambda m:f"{m[1]} inp_{m[2]}_{m[3]}_{m[4]} = inp[{m[5]}][local_xy.y + {2-int(m[6])}]",body)
+                  body=body.replace("barrier();","barrier();\n    if(any(greaterThanEqual(ivec2(gl_GlobalInvocationID.xy),size)))return;")
+                  body=body.replace("LUMA_mul * texelFetch(LUMA_raw, input_base + ivec2(0, 0), 0).x","dot(texelFetch(sourceTex,input_base,0).rgb,vec3(.2126,.7152,.0722))")
+                  body=re.sub(r"conv2d(?:_\d+)?_mul \* texelFetch\(conv2d(?:_\d+)?_raw,",lambda m:"texelFetch(skipTex," if i==6 and "conv2d_raw" in m[0] else "texelFetch(sourceTex,",body)
+                  assert not re.search(r"\b(?:LUMA|conv2d\w*)_(?:mul|raw)\b",body)
+              (assets/f"art{i}.comp").write_text(prefix+body)
           p=root/"java/com/example/liteplayer/ReferenceScalerView.kt"
           s=p.read_text()
           def once(a,b):
               global s
               assert s.count(a)==1,(a,s.count(a))
               s=s.replace(a,b,1)
-          once("    private var neuralScale = 1.0f","    private var neuralScale = 1.0f\n    private var ghost: GhostStream? = null\n    private var ghostUnavailable = false")
+          once("    private var neuralScale = 1.0f","    private var neuralScale = 1.0f\n    private var ghost: ArtCNN? = null\n    private var ghostUnavailable = false")
           once("            failed = false","            failed = false\n            ghost = null\n            ghostUnavailable = false")
           once("            selected?.render(texVideo, transform, workW, workH, outW, outH,\n                diagnosticEnabled, false, originalFrameHeight=srcH, reuseInference=!newFrame)","""            if (srcH <= 800 && !ghostUnavailable) {
                   try {
-                      val engine = ghost ?: GhostStream(context).also {
+                      val engine = ghost ?: ArtCNN(context).also {
                           ghost = it
-                          Log.i("Reflite GhostStream", "Trained Ghost Stream active")
+                          Log.i("Reflite ArtCNN", "Trained ArtCNN active")
                       }
                       engine.render(texVideo,transform,srcW,srcH,outW,outH,newFrame)
                   } catch (error: Throwable) {
                       ghostUnavailable = true
                       ghost?.close()
                       ghost = null
-                      Log.e("Reflite GhostStream","Ghost Stream unavailable; FSRCNNX fallback",error)
-                      post { android.widget.Toast.makeText(context,"GhostStream: "+(error.message ?: error.javaClass.simpleName).take(180),android.widget.Toast.LENGTH_LONG).show() }
+                      Log.e("Reflite ArtCNN","ArtCNN unavailable; FSRCNNX fallback",error)
+                      post { android.widget.Toast.makeText(context,"ArtCNN: "+(error.message ?: error.javaClass.simpleName).take(180),android.widget.Toast.LENGTH_LONG).show() }
                       selected?.render(texVideo, transform, workW, workH, outW, outH,
                           diagnosticEnabled, false, originalFrameHeight=srcH)
                   }
@@ -217,8 +221,8 @@ jobs:
       - name: Preserve distinct APK filename
         run: |
           mkdir -p dist
-          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-GhostStream-DetailFix.apk
+          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-ArtCNN-CMP.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: Reflite-GhostStream-DetailFix-APK
-          path: dist/Reflite-GhostStream-DetailFix.apk
+          name: Reflite-ArtCNN-CMP-APK
+          path: dist/Reflite-ArtCNN-CMP.apk
