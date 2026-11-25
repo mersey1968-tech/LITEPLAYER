@@ -33,7 +33,24 @@ uniform sampler2D restored;
 void main(){
 vec3 rgb=texture(original,uv).rgb;
 float y=dot(rgb,vec3(.299,.587,.114));
-float newY=texture(restored,uv).r;
+vec2 d=1.0/vec2(textureSize(restored,0));
+float c=texture(restored,uv).r;
+float l=texture(restored,uv-vec2(d.x,0.)).r;
+float r=texture(restored,uv+vec2(d.x,0.)).r;
+float b=texture(restored,uv-vec2(0.,d.y)).r;
+float t=texture(restored,uv+vec2(0.,d.y)).r;
+float gx=abs(r-l), gy=abs(t-b);
+float wx=1.0/(0.012+gx), wy=1.0/(0.012+gy);
+float directional=(wx*(l+r)+wy*(b+t))/(2.0*(wx+wy));
+float detail=c-directional;
+float span=max(max(max(l,r),max(b,t)),c)-min(min(min(l,r),min(b,t)),c);
+float gate=smoothstep(.009,.045,span)*(1.0-.68*smoothstep(.16,.38,span));
+float fine=clamp(detail*1.65*gate,-.047,.047);
+float wide=(texture(restored,uv+vec2(2.*d.x,0.)).r+texture(restored,uv-vec2(2.*d.x,0.)).r+texture(restored,uv+vec2(0.,2.*d.y)).r+texture(restored,uv-vec2(0.,2.*d.y)).r)*.25;
+float depth=clamp((c-wide)*.42*gate,-.025,.025);
+float lo=min(c,min(min(l,r),min(b,t)));
+float hi=max(c,max(max(l,r),max(b,t)));
+float newY=clamp(c+fine+depth,max(0.,lo-.012),min(1.,hi+.012));
 color=vec4(clamp(rgb+vec3(newY-y),0.,1.),1.);
 }
 """)
