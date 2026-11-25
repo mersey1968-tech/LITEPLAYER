@@ -1,0 +1,48 @@
+#version 310 es
+precision highp float;
+precision highp int;
+layout(local_size_x=8,local_size_y=8,local_size_z=1) in;
+layout(std430,binding=0) readonly buffer Weights { vec4 weight[]; };
+layout(std430,binding=1) readonly buffer InputFeatures { uvec2 inputData[]; };
+layout(std430,binding=2) writeonly buffer OutputFeatures { uvec2 outputData[]; };
+layout(std430,binding=3) readonly buffer SkipFeatures { uvec2 skipData[]; };
+layout(rgba16f,binding=0) writeonly uniform highp image2D reconstructed;
+uniform highp sampler2D sourceRgb;
+uniform ivec2 size;
+uniform int offset, inGroups, outGroups, mode;
+vec4 decode(uvec2 v){return vec4(unpackHalf2x16(v.x),unpackHalf2x16(v.y));}
+uvec2 encode(vec4 v){return uvec2(packHalf2x16(v.xy),packHalf2x16(v.zw));}
+void main(){
+    ivec2 p=ivec2(gl_GlobalInvocationID.xy);
+    int group=int(gl_GlobalInvocationID.z);
+    if(any(greaterThanEqual(p,size)) || group>=outGroups) return;
+    int pixel=p.y*size.x+p.x;
+    int plane=size.x*size.y;
+    int cursor=offset+outGroups+group*inGroups*36;
+    vec4 sum=weight[offset+group];
+    for(int i=0;i<inGroups;i++){
+        for(int ky=-1;ky<=1;ky++){
+            for(int kx=-1;kx<=1;kx++){
+                ivec2 q=p+ivec2(kx,-ky);
+                vec4 v=vec4(0.0);
+                if(all(greaterThanEqual(q,ivec2(0))) && all(lessThan(q,size))){
+                    if(mode==0){
+                        v.x=dot(texelFetch(sourceRgb,q,0).rgb,vec3(0.299,0.587,0.114));
+                    }else{
+                        v=decode(inputData[i*plane+q.y*size.x+q.x]);
+                    }
+                }
+                sum+=vec4(dot(v,weight[cursor]),dot(v,weight[cursor+1]),dot(v,weight[cursor+2]),dot(v,weight[cursor+3]));
+                cursor+=4;
+            }
+        }
+    }
+    if(mode==1) sum=sum/(1.0+exp(-clamp(sum,-80.0,80.0)));
+    if(mode==2) sum+=decode(skipData[group*plane+pixel]);
+    if(mode==3){
+        for(int sy=0;sy<2;sy++) for(int sx=0;sx<2;sx++){
+            float y=clamp(sum[sy*2+sx],0.0,1.0);
+            imageStore(reconstructed,p*2+ivec2(sx,1-sy),vec4(y,y,y,1.0));
+        }
+    }else outputData[group*plane+pixel]=encode(sum);
+}
