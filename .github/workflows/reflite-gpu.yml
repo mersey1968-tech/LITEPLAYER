@@ -1,7 +1,7 @@
-name: Reflite RAVU Zoom
+name: Reflite RAVU Compute
 on:
   push:
-    branches: [reflite-ravu-zoom-r3]
+    branches: [reflite-ravu-compute-r3]
   workflow_dispatch:
 jobs:
   build:
@@ -129,7 +129,7 @@ jobs:
       - name: Install upstream trained RAVU Zoom RGB radius 3 with anti-ringing
         run: |
           mkdir -p proj/app/src/main/assets/reflite
-          curl -fL --retry 3 https://raw.githubusercontent.com/bjin/mpv-prescalers/master/ravu-zoom-ar-r3-rgb.hook -o ravu.hook
+          curl -fL --retry 3 https://raw.githubusercontent.com/bjin/mpv-prescalers/master/compute/ravu-zoom-ar-r3-rgb.hook -o ravu.hook
           cp research/referencescaler/RavuZoom.kt proj/app/src/main/java/com/example/liteplayer/
           python3 - <<'PY'
           from pathlib import Path
@@ -141,31 +141,32 @@ jobs:
           shader=parts[0]
           begin=shader.index("#define LUTPOS")
           body=shader[begin:]
-          # Only the published RGB fragment hook is accepted.
-          assert "vec4 hook()" in body and "HOOKED_tex" in body
-          prefix="""#version 300 es
+          assert "void hook()" in body and "shared " in body
+          prefix="""#version 310 es
           #extension GL_OES_EGL_image_external_essl3 : require
           precision highp float;
+          precision highp int;
           precision highp sampler2D;
-          in vec2 uv;
-          out vec4 colorOut;
+          layout(local_size_x=32,local_size_y=8) in;
+          layout(rgba8,binding=0) writeonly uniform highp image2D out_image;
           uniform samplerExternalOES uVideo;
           uniform mat4 uMatrix;
-          uniform vec2 uSize;
+          uniform vec2 uSize,uOutput;
           uniform sampler2D ravu_zoom_lut3;
           uniform sampler2D ravu_zoom_lut3_ar;
-          #define HOOKED_pos uv
           #define HOOKED_size uSize
           #define HOOKED_pt (1.0/uSize)
+          #define HOOKED_map(p) ((vec2(p)+0.5)/uOutput)
           vec4 HOOKED_tex(vec2 p) {
               vec2 edge=0.5/uSize;
               return texture(uVideo,(uMatrix*vec4(clamp(p,edge,1.0-edge),0.,1.)).xy);
           }
           """
-          # The RGB luma coefficients may precede LUTPOS.
           if "const vec3 color_primary" not in body:
               prefix+="const vec3 color_primary=vec3(0.2126,0.7152,0.0722);\n"
-          (assets/"ravu.frag").write_text(prefix+body+"\nvoid main(){colorOut=hook();}\n")
+          body=body.replace("imageStore(out_image,", "if(all(lessThan(ivec2(gl_GlobalInvocationID.xy),ivec2(uOutput)))) imageStore(out_image,")
+          body=body.replace("ivec2(gl_GlobalInvocationID)","ivec2(gl_GlobalInvocationID.xy)").replace("ivec2(gl_WorkGroupID)","ivec2(gl_WorkGroupID.xy)").replace("ivec2(gl_WorkGroupSize)","ivec2(gl_WorkGroupSize.xy)")
+          (assets/"ravu.comp").write_text(prefix+body+"\nvoid main(){hook();}\n")
           for part in parts[1:]:
               name=part.splitlines()[0].strip()
               index={"ravu_zoom_lut3":0,"ravu_zoom_lut3_ar":1}[name]
@@ -221,8 +222,8 @@ jobs:
       - name: Preserve distinct APK filename
         run: |
           mkdir -p dist
-          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-RAVU.apk
+          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-RAVU-Compute.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: Reflite-RAVU-APK
-          path: dist/Reflite-RAVU.apk
+          name: Reflite-RAVU-Compute-APK
+          path: dist/Reflite-RAVU-Compute.apk
