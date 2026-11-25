@@ -1,7 +1,7 @@
-name: Reflite 720p Detail Safe
+name: Reflite Jinc Reconstruction
 on:
   push:
-    branches: [reflite-v2-720p-detail-safe]
+    branches: [reflite-v2-jinc-reconstruction]
   workflow_dispatch:
 jobs:
   build:
@@ -126,6 +126,74 @@ jobs:
           p.write_text(s)
           print("720p detail and dead helpers staged on Reuse Draw; timing unchanged")
           PY
+      - name: Replace approximate cubic with radial windowed Jinc reconstruction
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path("proj/app/src/main/java/com/example/liteplayer/FsrcnnxPipeline.kt")
+          s=p.read_text()
+          import math
+          def jinc(x):
+              # J1(x)*2/x, convergent series on this bounded interval.
+              z=-x*x/4
+              term=total=1.0
+              for k in range(1,24):
+                  term*=z/(k*(k+1))
+                  total+=term
+              return total
+          # Compact two-lobe Jinc-windowed Jinc. Tabulate radial squared
+          # distance to avoid Bessel/sqrt computation per output sample.
+          radius=2.5
+          zero=7.015586669815619
+          table=[]
+          for i in range(129):
+              d=radius*math.sqrt(i/128)
+              table.append(jinc(zero*d/radius)*jinc(3.8317059702075125*d/radius))
+          table[-1]=0.0
+          assert abs(table[0]-1)<1e-10 and min(table)<0
+          coeff=", ".join(f"{v:.9f}" for v in table)
+          a=s.index("            float cubicNeural(vec2 pos) {")
+          b=s.index("            void main(){",a)
+          shader="""            // Radial two-lobe Jinc, exact texel samples, normalized.
+                      const float jincWeights[129]=float[129](COEFF);
+                      float jincWeight(float d2) {
+                          float t=clamp(d2*(128.0/6.25),0.0,128.0);
+                          int i=min(int(t),127);
+                          return mix(jincWeights[i],jincWeights[i+1],t-float(i));
+                      }
+                      float jincNeural(vec2 pos) {
+                          vec2 x=pos*uNeuralSize-vec2(0.5);
+                          ivec2 base=ivec2(floor(x));
+                          vec2 f=fract(x);
+                          ivec2 limit=ivec2(uNeuralSize)-ivec2(1);
+                          float sum=0.0, weight=0.0;
+                          float lo=1e10, hi=-1e10;
+                          for(int j=-2;j<=3;j++) {
+                              for(int i=-2;i<=3;i++) {
+                                  vec2 d=vec2(float(i),float(j))-f;
+                                  float d2=dot(d,d);
+                                  if(d2<6.25) {
+                                      float w=jincWeight(d2);
+                                      float v=texelFetch(uNeural,clamp(base+ivec2(i,j),ivec2(0),limit),0).r;
+                                      sum+=w*v; weight+=w;
+                                      if(i>=0 && i<=1 && j>=0 && j<=1) {
+                                          lo=min(lo,v); hi=max(hi,v);
+                                      }
+                                  }
+                              }
+                          }
+                          float value=sum/max(weight,0.00001);
+                          return mix(value,clamp(value,lo,hi),0.8);
+                      }
+          """.replace("COEFF",coeff)
+          s=s[:a]+shader+s[b:]
+          assert s.count("cubicNeural(uv)")==1
+          s=s.replace("cubicNeural(uv)","jincNeural(uv)")
+          # Restrict new reconstruction to low-resolution source material.
+          s=s.replace("val cubic720=h <= 800", "val cubic720=originalFrameHeight <= 800")
+          p.write_text(s)
+          print("Jinc radial reconstruction staged; 1080p native output unchanged")
+          PY
       - uses: android-actions/setup-android@v3
         with:
           packages: "platform-tools"
@@ -142,8 +210,8 @@ jobs:
       - name: Preserve distinct APK filename
         run: |
           mkdir -p dist
-          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-720p-DetailSafe.apk
+          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-Jinc.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: Reflite-720p-DetailSafe-APK
-          path: dist/Reflite-720p-DetailSafe.apk
+          name: Reflite-Jinc-APK
+          path: dist/Reflite-Jinc.apk
