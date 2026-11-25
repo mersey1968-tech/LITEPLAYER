@@ -1,7 +1,7 @@
-name: Reflite 720p Detail Safe
+name: Reflite GhostStream
 on:
   push:
-    branches: [reflite-v2-720p-detail-safe]
+    branches: [reflite-ghoststream]
   workflow_dispatch:
 jobs:
   build:
@@ -126,6 +126,81 @@ jobs:
           p.write_text(s)
           print("720p detail and dead helpers staged on Reuse Draw; timing unchanged")
           PY
+      - name: Install trained Ghost Stream GPU renderer
+        run: |
+          mkdir -p proj/app/src/main/assets/reflite
+          curl -fL --retry 3 https://raw.githubusercontent.com/AxiomState/ghoststream-benchmark/HEAD/demo/manifest.json -o ghost.json
+          curl -fL --retry 3 https://raw.githubusercontent.com/AxiomState/ghoststream-benchmark/HEAD/demo/weights.bin -o ghost.bin
+          curl -fL --retry 3 https://raw.githubusercontent.com/AxiomState/ghoststream-benchmark/HEAD/LICENSE -o proj/app/src/main/assets/reflite/GhostStream-LICENSE
+          cp research/referencescaler/ghost.comp proj/app/src/main/assets/reflite/
+          cp research/referencescaler/GhostStream.kt proj/app/src/main/java/com/example/liteplayer/
+          python3 - <<'PY'
+          import json,struct,math
+          from pathlib import Path
+          root=Path("proj/app/src/main")
+          assets=root/"assets/reflite"
+          manifest=json.loads(Path("ghost.json").read_text())
+          raw=Path("ghost.bin").read_bytes()
+          data=struct.unpack("<"+"e"*(len(raw)//2),raw)
+          assert len(data)==47980 and all(math.isfinite(x) for x in data)
+          tensors={}
+          cursor=0
+          for layer in manifest["layers"]:
+              n=layer["numel"]
+              tensors[layer["name"]]=(layer["shape"],data[cursor:cursor+n])
+              cursor+=n
+          assert cursor==len(data)
+          packed=[]
+          layers=[]
+          for name in ["h"]+[f"b.{i}.c{j}" for i in range(4) for j in (1,2)]+["p","t"]:
+              (oc,ic,kh,kw),w=tensors[name+".weight"]
+              _,b=tensors[name+".bias"]
+              assert kh==kw==3 and oc%4==0
+              ig=(ic+3)//4
+              og=oc//4
+              layers.append(f"{len(packed)//4} {ig} {og}")
+              packed.extend(b)
+              for g in range(og):
+                  for i in range(ig):
+                      for ky in range(3):
+                          for kx in range(3):
+                              for o in range(4):
+                                  for c in range(4):
+                                      channel=i*4+c
+                                      packed.append(w[((g*4+o)*ic+channel)*9+ky*3+kx] if channel<ic else 0.)
+          (assets/"ghost.weights").write_bytes(struct.pack("<"+"f"*len(packed),*packed))
+          (assets/"ghost.layers").write_text("\n".join(layers)+"\n")
+          p=root/"java/com/example/liteplayer/ReferenceScalerView.kt"
+          s=p.read_text()
+          def once(a,b):
+              global s
+              assert s.count(a)==1,(a,s.count(a))
+              s=s.replace(a,b,1)
+          once("    private var neuralScale = 1.0f","    private var neuralScale = 1.0f\n    private var ghost: GhostStream? = null\n    private var ghostUnavailable = false")
+          once("            failed = false","            failed = false\n            ghost = null\n            ghostUnavailable = false")
+          once("            selected?.render(texVideo, transform, workW, workH, outW, outH,\n                diagnosticEnabled, false, originalFrameHeight=srcH, reuseInference=!newFrame)","""            if (srcH <= 800 && !ghostUnavailable) {
+                  try {
+                      val engine = ghost ?: GhostStream(context).also {
+                          ghost = it
+                          Log.i("Reflite GhostStream", "Trained Ghost Stream active")
+                      }
+                      engine.render(texVideo,transform,srcW,srcH,outW,outH,newFrame)
+                  } catch (error: Throwable) {
+                      ghostUnavailable = true
+                      ghost?.close()
+                      ghost = null
+                      Log.e("Reflite GhostStream","Ghost Stream unavailable; FSRCNNX fallback",error)
+                      post { android.widget.Toast.makeText(context,"Ghost Stream unavailable; FSRCNNX fallback",android.widget.Toast.LENGTH_LONG).show() }
+                      selected?.render(texVideo, transform, workW, workH, outW, outH,
+                          diagnosticEnabled, false, originalFrameHeight=srcH)
+                  }
+              } else {
+                  selected?.render(texVideo, transform, workW, workH, outW, outH,
+                      diagnosticEnabled, false, originalFrameHeight=srcH, reuseInference=!newFrame)
+              }""")
+          once("            neural16Pipeline?.close()","            ghost?.close()\n            ghost = null\n            neural16Pipeline?.close()")
+          p.write_text(s)
+          PY
       - uses: android-actions/setup-android@v3
         with:
           packages: "platform-tools"
@@ -142,8 +217,8 @@ jobs:
       - name: Preserve distinct APK filename
         run: |
           mkdir -p dist
-          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-720p-DetailSafe.apk
+          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-GhostStream.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: Reflite-720p-DetailSafe-APK
-          path: dist/Reflite-720p-DetailSafe.apk
+          name: Reflite-GhostStream-APK
+          path: dist/Reflite-GhostStream.apk
