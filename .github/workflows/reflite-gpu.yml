@@ -1,7 +1,7 @@
-name: Reflite ArtCNN Verify
+name: Reflite ArtCNN 16DS
 on:
   push:
-    branches: [reflite-artcnn-verify]
+    branches: [reflite-artcnn-16]
   workflow_dispatch:
 jobs:
   build:
@@ -129,7 +129,7 @@ jobs:
       - name: Install trained ArtCNN compression restoration renderer
         run: |
           mkdir -p proj/app/src/main/assets/reflite
-          curl -fL --retry 3 https://raw.githubusercontent.com/hooke007/mpv_PlayKit/HEAD/portable_config/shaders/ArtCNN/ArtCNN_v0_C4F8_DS_CMP.glsl -o art.glsl
+          curl -fL --retry 3 https://raw.githubusercontent.com/hooke007/mpv_PlayKit/HEAD/portable_config/shaders/ArtCNN/ArtCNN_C4F16_DS.glsl -o art.glsl
           cp art.glsl proj/app/src/main/assets/reflite/ArtCNN-original.glsl
           cp research/referencescaler/ArtCNN.kt proj/app/src/main/java/com/example/liteplayer/
           python3 - <<'PY'
@@ -191,7 +191,7 @@ jobs:
                       engine.render(texVideo,transform,srcW,srcH,outW,outH,newFrame)
                       if (!artConfirmed) {
                           artConfirmed = true
-                          post { android.widget.Toast.makeText(context,"ArtCNN CMP ACTIVE: "+srcW+"x"+srcH,android.widget.Toast.LENGTH_LONG).show() }
+                          post { android.widget.Toast.makeText(context,"ArtCNN 16DS ACTIVE: "+srcW+"x"+srcH,android.widget.Toast.LENGTH_LONG).show() }
                       }
                   } catch (error: Throwable) {
                       ghostUnavailable = true
@@ -225,8 +225,8 @@ jobs:
       - name: Preserve distinct APK filename
         run: |
           mkdir -p dist
-          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-ArtCNN-Verify.apk
+          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-ArtCNN-16DS.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: Reflite-ArtCNN-Verify-APK
-          path: dist/Reflite-ArtCNN-Verify.apk
+          name: Reflite-ArtCNN-16DS-APK
+          path: dist/Reflite-ArtCNN-16DS.apk
