@@ -1,7 +1,7 @@
-name: Reflite 720p Detail Safe
+name: Reflite RAVU Zoom
 on:
   push:
-    branches: [reflite-v2-720p-detail-safe]
+    branches: [reflite-ravu-zoom-r3]
   workflow_dispatch:
 jobs:
   build:
@@ -126,6 +126,85 @@ jobs:
           p.write_text(s)
           print("720p detail and dead helpers staged on Reuse Draw; timing unchanged")
           PY
+      - name: Install upstream trained RAVU Zoom RGB radius 3 with anti-ringing
+        run: |
+          mkdir -p proj/app/src/main/assets/reflite
+          curl -fL --retry 3 https://raw.githubusercontent.com/bjin/mpv-prescalers/master/ravu-zoom-ar-r3-rgb.hook -o ravu.hook
+          cp research/referencescaler/RavuZoom.kt proj/app/src/main/java/com/example/liteplayer/
+          python3 - <<'PY'
+          from pathlib import Path
+          import re,struct
+          assets=Path("proj/app/src/main/assets/reflite")
+          raw=Path("ravu.hook").read_text()
+          parts=raw.split("//!TEXTURE ")
+          assert len(parts)==3
+          shader=parts[0]
+          begin=shader.index("#define LUTPOS")
+          body=shader[begin:]
+          # Only the published RGB fragment hook is accepted.
+          assert "vec4 hook()" in body and "HOOKED_tex" in body
+          prefix="""#version 300 es
+          #extension GL_OES_EGL_image_external_essl3 : require
+          precision highp float;
+          precision highp sampler2D;
+          in vec2 uv;
+          out vec4 colorOut;
+          uniform samplerExternalOES uVideo;
+          uniform mat4 uMatrix;
+          uniform vec2 uSize;
+          uniform sampler2D ravu_zoom_lut3;
+          uniform sampler2D ravu_zoom_lut3_ar;
+          #define HOOKED_pos uv
+          #define HOOKED_size uSize
+          #define HOOKED_pt (1.0/uSize)
+          vec4 HOOKED_tex(vec2 p) {
+              vec2 edge=0.5/uSize;
+              return texture(uVideo,(uMatrix*vec4(clamp(p,edge,1.0-edge),0.,1.)).xy);
+          }
+          """
+          # The RGB luma coefficients may precede LUTPOS.
+          if "const vec3 color_primary" not in body:
+              prefix+="const vec3 color_primary=vec3(0.2126,0.7152,0.0722);\n"
+          (assets/"ravu.frag").write_text(prefix+body+"\nvoid main(){colorOut=hook();}\n")
+          for part in parts[1:]:
+              name=part.splitlines()[0].strip()
+              index={"ravu_zoom_lut3":0,"ravu_zoom_lut3_ar":1}[name]
+              w,h=map(int,re.search(r"//!SIZE (\d+) (\d+)",part).groups())
+              fmt=re.search(r"//!FORMAT (\w+)",part).group(1)
+              data=bytes.fromhex("".join(line.strip() for line in part.splitlines() if re.fullmatch(r"[0-9a-fA-F]+",line.strip())))
+              assert fmt in ("rgba16f","rgba32f") and len(data)==w*h*16,(name,fmt,w,h,len(data))
+              (assets/("ravu%d.bin"%index)).write_bytes(struct.pack("<ii",w,h)+data)
+          p=Path("proj/app/src/main/java/com/example/liteplayer/ReferenceScalerView.kt")
+          s=p.read_text()
+          def once(a,b):
+              global s
+              assert s.count(a)==1,(a,s.count(a))
+              s=s.replace(a,b,1)
+          once("    private var neuralScale = 1.0f","    private var neuralScale = 1.0f\n    private var ravu: RavuZoom? = null\n    private var ravuUnavailable = false")
+          once("            failed = false","            failed = false\n            ravu = null\n            ravuUnavailable = false")
+          once("            selected?.render(texVideo, transform, workW, workH, outW, outH,\n                diagnosticEnabled, false, originalFrameHeight=srcH, reuseInference=!newFrame)","""            if (srcH <= 800 && !ravuUnavailable) {
+                  try {
+                      val engine = ravu ?: RavuZoom(context).also {
+                          ravu = it
+                          Log.i("Reflite RAVU", "RAVU Zoom r3 RGB active")
+                      }
+                      engine.render(texVideo,transform,srcW,srcH,outW,outH)
+                  } catch (error: Throwable) {
+                      ravuUnavailable = true
+                      ravu?.close()
+                      ravu = null
+                      Log.e("Reflite RAVU","RAVU unavailable; FSRCNNX fallback",error)
+                      post { android.widget.Toast.makeText(context,"RAVU unavailable; FSRCNNX fallback",android.widget.Toast.LENGTH_LONG).show() }
+                      selected?.render(texVideo, transform, workW, workH, outW, outH,
+                          diagnosticEnabled, false, originalFrameHeight=srcH)
+                  }
+              } else {
+                  selected?.render(texVideo, transform, workW, workH, outW, outH,
+                      diagnosticEnabled, false, originalFrameHeight=srcH, reuseInference=!newFrame)
+              }""")
+          once("            neural16Pipeline?.close()","            ravu?.close()\n            ravu = null\n            neural16Pipeline?.close()")
+          p.write_text(s)
+          PY
       - uses: android-actions/setup-android@v3
         with:
           packages: "platform-tools"
@@ -142,8 +221,8 @@ jobs:
       - name: Preserve distinct APK filename
         run: |
           mkdir -p dist
-          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-720p-DetailSafe.apk
+          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-RAVU.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: Reflite-720p-DetailSafe-APK
-          path: dist/Reflite-720p-DetailSafe.apk
+          name: Reflite-RAVU-APK
+          path: dist/Reflite-RAVU.apk
