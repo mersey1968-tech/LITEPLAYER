@@ -1,7 +1,7 @@
-name: Reflite Clean Pipeline
+name: Reflite 720p Detail Sync
 on:
   push:
-    branches: [reflite-v2-clean-pipeline]
+    branches: [reflite-v2-720p-detail-sync]
   workflow_dispatch:
 jobs:
   build:
@@ -149,6 +149,31 @@ jobs:
           p.write_text(s)
           print("Clean pipeline staged; neural shaders, precision and adaptive timing unchanged")
           PY
+      - name: Strengthen 720p detail and remove blocking periodic GPU timing at 720p
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          root=Path("proj/app/src/main/java/com/example/liteplayer")
+          def once(s,a,b):
+              assert s.count(a)==1,(a,s.count(a))
+              return s.replace(a,b,1)
+          p=root/"FsrcnnxPipeline.kt"
+          s=p.read_text()
+          s=once(s,"float tvTextureStrength=1.0+0.21*", "float tvTextureStrength=1.0+0.85*")
+          s=once(s,"textureGate,-.024,.024);","textureGate,-.032,.032);")
+          # Keep the previous residual cap at 1080p.
+          s=once(s,"textureGate,-.032,.032);","textureGate,-mix(.024,.032,1.0-smoothstep(770.0,910.0,uOriginalFrameHeight)),\n                    mix(.024,.032,1.0-smoothstep(770.0,910.0,uOriginalFrameHeight)));")
+          s=once(s,"rgb=mix(rawRgb,weighted/total,0.22*detailProtection);","rgb=mix(rawRgb,weighted/total,mix(0.22,0.08,1.0-smoothstep(770.0,910.0,uOriginalFrameHeight))*detailProtection);")
+          p.write_text(s)
+          p=root/"ReferenceScalerView.kt"
+          s=p.read_text()
+          s=once(s,"            val sampleGpu = newFrame && (++presentedFrames % 8 == 0)","            val sampleGpu = srcH > 800 && newFrame && (++presentedFrames % 8 == 0)")
+          # Keep full 720p neural resolution; preserve 1080p fallback and
+          # its existing startup synchronization until separately tested.
+          s=once(s,"            val workW = (srcW * neuralScale).toInt().coerceAtLeast(1)\n            val workH = (srcH * neuralScale).toInt().coerceAtLeast(1)","            val scale = if (srcH <= 800) 1.0f else neuralScale\n            val workW = (srcW * scale).toInt().coerceAtLeast(1)\n            val workH = (srcH * scale).toInt().coerceAtLeast(1)")
+          p.write_text(s)
+          print("720p detail and full-resolution GPU test staged")
+          PY
       - uses: android-actions/setup-android@v3
         with:
           packages: "platform-tools"
@@ -165,8 +190,8 @@ jobs:
       - name: Preserve distinct APK filename
         run: |
           mkdir -p dist
-          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-CleanPipeline.apk
+          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-720p-DetailSync.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: Reflite-CleanPipeline-APK
-          path: dist/Reflite-CleanPipeline.apk
+          name: Reflite-720p-DetailSync-APK
+          path: dist/Reflite-720p-DetailSync.apk
