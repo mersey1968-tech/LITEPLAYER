@@ -1,149 +1,44 @@
-name: Reflite 720p Detail Safe
+name: SwinIR x3 export verification
 on:
   push:
-    branches: [reflite-v2-720p-detail-safe]
+    branches: [reflite-swinir-feasibility]
   workflow_dispatch:
 jobs:
-  build:
+  export:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Unpack stable Android project
-        run: unzip -q LitePlayer.zip -d proj
-      - name: Overlay original stable player implementation
-        run: |
-          cp source-review/app/src/main/java/com/example/liteplayer/MainActivity.kt proj/app/src/main/java/com/example/liteplayer/MainActivity.kt
-          cp source-review/app/src/main/java/com/example/liteplayer/audio/IecAudioOutput.kt proj/app/src/main/java/com/example/liteplayer/audio/IecAudioOutput.kt
-          cp source-review/app/src/main/java/com/example/liteplayer/SmbAccess.kt proj/app/src/main/java/com/example/liteplayer/SmbAccess.kt
-          cp source-review/app/src/main/res/layout/activity_main.xml proj/app/src/main/res/layout/activity_main.xml
-          sed -i '/^dependencies {/a\    implementation("eu.agno3.jcifs:jcifs-ng:2.1.10")' proj/app/build.gradle.kts
-      - name: Isolate Reflite identity and stage research shader
-        run: |
-          python3 - <<'PY'
-          import re
-          from pathlib import Path
-          g=Path("proj/app/build.gradle.kts")
-          s=g.read_text()
-          s,n=re.subn(r'applicationId\s*=\s*"[^"]+"', 'applicationId = "com.example.reflite.experimental"', s, count=1)
-          if n!=1: raise RuntimeError("Could not assign independent Reflite app ID")
-          g.write_text(s)
-          m=Path("proj/app/src/main/AndroidManifest.xml")
-          x=m.read_text()
-          x,n=re.subn(r'android:label\s*=\s*"[^"]+"', 'android:label="Reflite"', x, count=1)
-          if n!=1: raise RuntimeError("Could not assign Reflite launcher label")
-          m.write_text(x)
-          shader=Path("proj/app/src/main/assets/reflite")
-          shader.mkdir(parents=True,exist_ok=True)
-          (shader/"low_ringing_6tap.frag").write_bytes(Path("research/referencescaler/low_ringing_6tap.frag").read_bytes())
-          assert "com.example.reflite.experimental" in g.read_text()
-          assert 'android:label="Reflite"' in m.read_text()
-          print("Reflite app ID, launcher label, research shader staged")
-          PY
-      - name: Add opt-in GPU renderer in isolated test copy
-        run: python3 research/referencescaler/patch_gpu.py
-      - name: Install FSRCNNX trained neural inference and shader
-        run: |
-          mkdir -p proj/app/src/main/assets/reflite
-          cp research/fsrcnnx/FSRCNNX_x2_8-0-4-1.glsl proj/app/src/main/assets/reflite/
-          cp research/fsrcnnx/FSRCNNX_x2_16-0-4-1.glsl proj/app/src/main/assets/reflite/
-          cp research/fsrcnnx/FsrcnnxPipeline.kt proj/app/src/main/java/com/example/liteplayer/
-          test -s proj/app/src/main/assets/reflite/FSRCNNX_x2_8-0-4-1.glsl
-          grep -q 'FsrcnnxPipeline' proj/app/src/main/java/com/example/liteplayer/ReferenceScalerView.kt
-      - name: Give GPU test its own app identity
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          g=Path("proj/app/build.gradle.kts")
-          text=g.read_text()
-          assert 'com.example.reflite.experimental' in text
-          g.write_text(text.replace('com.example.reflite.experimental','com.example.reflite.gputest'))
-          m=Path("proj/app/src/main/AndroidManifest.xml")
-          text=m.read_text()
-          assert 'android:label="Reflite"' in text
-          m.write_text(text.replace('android:label="Reflite"','android:label="Reflite"'))
-          PY
-      - name: Apply stable neural SDR, subtitle overlay and persistent setting fixes
-        run: python3 research/referencescaler/patch_sdr_clean.py
-      - name: Render subtitles above neural surface
-        run: python3 research/referencescaler/patch_subtitles_overlay.py
-      - name: Stage natural-detail neural reconstruction
-        run: python3 research/fsrcnnx/patch_natural_detail.py
-      - name: Stage automatic gentle TV episode cleanup without additional settings
-        run: python3 research/fsrcnnx/patch_auto_tv_cleanup.py
-      - name: Protect neural input detail and reconstruct 720p to 4K
-        run: python3 research/fsrcnnx/patch_720p_1080p_quality.py
-      - name: Gentle local midtone contrast for depth without extra settings
-        run: python3 research/fsrcnnx/patch_tv_microcontrast.py
-      - name: Fix Back navigation when playback controls visible
-        run: python3 research/referencescaler/patch_back_controls.py
-      - name: Fix 1080p presentation and stop playback on exit; increase real neural detail
-        run: python3 research/fsrcnnx/patch_playback_and_real_detail.py
-      - name: Enable more capable FSRCNNX 16-channel trained model for 540p and 720p
-        run: python3 research/fsrcnnx/patch_v2_16channel.py
-      - name: Prime neural shaders and refine 720p detail and microcontrast
-        run: python3 research/fsrcnnx/patch_v2_warmup_detail.py
-      - name: Improve local black depth without clipping shadows
-        run: python3 research/fsrcnnx/patch_v2_richer_blacks.py
-      - name: Enhance 720p learned texture and image depth without added GPU texture reads
-        run: python3 research/fsrcnnx/patch_v2_picture_depth_720.py
-      - name: Correct 25 fps frame rate matching to 50 Hz without modifying picture quality
-        run: python3 research/referencescaler/patch_afr_25_to_50.py
-      - name: Reuse RGBA16F neural framebuffer targets after dependency last-use
-        run: python3 research/fsrcnnx/patch_dependency_buffer_reuse.py
-      - name: Synchronize 1080p neural surface readiness without changing 720p or audio sinks
-        run: python3 research/fsrcnnx/patch_1080_startup_surface_sync.py
-      - name: Apply precision sync and preserve neural texture filtering
-        run: python3 research/fsrcnnx/patch_precision_sync.py
-      - name: One-time backward seek after neural activation; retain contrast
-        run: python3 research/fsrcnnx/patch_completed_frame_contrast.py
-      - name: Cache shader locations and reduce redundant viewport updates
-        run: python3 research/fsrcnnx/patch_gl_cache.py
-      - name: Reuse duplicate neural inference and cache scalar uniform values
-        run: python3 research/fsrcnnx/patch_reuse_draw.py
-      - name: Strengthen 720p detail and remove unreachable legacy helpers
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          root=Path("proj/app/src/main/java/com/example/liteplayer")
-          def once(s,a,b):
-              assert s.count(a)==1,(a,s.count(a))
-              return s.replace(a,b,1)
-          p=root/"FsrcnnxPipeline.kt"
-          s=p.read_text()
-          s=once(s,"float tvTextureStrength=1.0+0.21*", "float tvTextureStrength=1.0+0.85*")
-          s=once(s,"textureGate,-.024,.024);","textureGate,-mix(.024,.032,1.0-smoothstep(770.0,910.0,uOriginalFrameHeight)),\n                    mix(.024,.032,1.0-smoothstep(770.0,910.0,uOriginalFrameHeight)));")
-          s=once(s,"rgb=mix(rawRgb,weighted/total,0.22*detailProtection);","rgb=mix(rawRgb,weighted/total,mix(0.22,0.08,1.0-smoothstep(770.0,910.0,uOriginalFrameHeight))*detailProtection);")
-          p.write_text(s)
-          p=root/"ReferenceScalerView.kt"
-          s=p.read_text()
-          # Remove only uncalled private methods and constants; preserve
-          # field initialization, frame scheduling and resource lifetimes.
-          start=s.index("    private fun ensureFramebuffer(")
-          end=s.index("    private fun fail(",start)
-          s=s[:start]+s[end:]
-          start=s.index("    companion object {")
-          s=s[:start]+"}\n"
-          p.write_text(s)
-          print("720p detail and dead helpers staged on Reuse Draw; timing unchanged")
-          PY
-      - uses: android-actions/setup-android@v3
+      - uses: actions/setup-python@v5
         with:
-          packages: "platform-tools"
-      - uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: 17
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: "8.9"
-      - name: Build Reflite APK
-        working-directory: proj
-        run: gradle assembleDebug --no-daemon
-      - name: Preserve distinct APK filename
+          python-version: '3.11'
+      - name: Fetch upstream model and source
+        run: |
+          git clone --depth 1 https://github.com/JingyunLiang/SwinIR.git upstream
+          curl -fL --retry 3 https://github.com/JingyunLiang/SwinIR/releases/download/v0.0/002_lightweightSR_DIV2K_s64w8_SwinIR-S_x3.pth -o model.pth
+          pip install torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cpu
+          pip install timm==0.9.16 onnx==1.17.0 onnxruntime==1.21.0 numpy
+      - name: Export official x3 network and verify numerical equivalence
         run: |
           mkdir -p dist
-          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-720p-DetailSafe.apk
+          PYTHONPATH=upstream python - <<'PY'
+          import torch, numpy as np, onnxruntime as ort, onnx
+          from models.network_swinir import SwinIR
+          model=SwinIR(upscale=3,in_chans=3,img_size=64,window_size=8,img_range=1.,depths=[6,6,6,6],embed_dim=60,num_heads=[6,6,6,6],mlp_ratio=2,upsampler='pixelshuffledirect',resi_connection='1conv')
+          model.load_state_dict(torch.load('model.pth',map_location='cpu',weights_only=True)['params'],strict=True)
+          model.eval()
+          print('Parameters:',sum(p.numel() for p in model.parameters()))
+          torch.manual_seed(1)
+          x=torch.rand(1,3,64,64)
+          with torch.no_grad():
+              expected=model(x).numpy()
+              torch.onnx.export(model,x,'dist/swinir-x3-64.onnx',input_names=['rgb'],output_names=['output'],opset_version=17)
+          onnx.checker.check_model('dist/swinir-x3-64.onnx')
+          sess=ort.InferenceSession('dist/swinir-x3-64.onnx',providers=['CPUExecutionProvider'])
+          y=sess.run(None,{'rgb':x.numpy()})[0]
+          assert y.shape==(1,3,192,192)
+          np.testing.assert_allclose(y,expected,rtol=0.001,atol=0.0002)
+          print('Verified max error:',np.max(np.abs(y-expected)))
+          PY
       - uses: actions/upload-artifact@v4
         with:
-          name: Reflite-720p-DetailSafe-APK
-          path: dist/Reflite-720p-DetailSafe.apk
+          name: SwinIR-x3-verified-ONNX
+          path: dist/
