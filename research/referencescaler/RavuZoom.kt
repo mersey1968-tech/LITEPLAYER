@@ -9,6 +9,11 @@ import java.nio.ByteOrder
 internal class RavuZoom(context: Context) {
     private val textures = IntArray(2)
     private val program: Int
+    private val keyProgram: Int
+    private val keyTex = IntArray(1)
+    private val keyFbo = IntArray(1)
+    private var keyW=0
+    private var keyH=0
     private val vertices=ByteBuffer.allocateDirect(32).order(ByteOrder.nativeOrder()).asFloatBuffer()
         .apply { put(floatArrayOf(-1f,-1f,1f,-1f,-1f,1f,1f,1f)); position(0) }
     private fun compile(type:Int, source:String):Int {
@@ -23,6 +28,12 @@ internal class RavuZoom(context: Context) {
         val fs=compile(G.GL_FRAGMENT_SHADER,context.assets.open("reflite/ravu.frag").bufferedReader().use{it.readText()})
         program=G.glCreateProgram(); G.glAttachShader(program,vs); G.glAttachShader(program,fs); G.glLinkProgram(program)
         val status=IntArray(1); G.glGetProgramiv(program,G.GL_LINK_STATUS,status,0)
+        val ks=compile(G.GL_FRAGMENT_SHADER,context.assets.open("reflite/ravu-key.frag").bufferedReader().use{it.readText()})
+        keyProgram=G.glCreateProgram(); G.glAttachShader(keyProgram,vs); G.glAttachShader(keyProgram,ks); G.glLinkProgram(keyProgram)
+        val keyStatus=IntArray(1); G.glGetProgramiv(keyProgram,G.GL_LINK_STATUS,keyStatus,0)
+        check(keyStatus[0]==G.GL_TRUE){G.glGetProgramInfoLog(keyProgram)}
+        G.glDeleteShader(ks)
+        G.glGenTextures(1,keyTex,0); G.glGenFramebuffers(1,keyFbo,0)
         G.glDeleteShader(vs); G.glDeleteShader(fs)
         check(status[0]==G.GL_TRUE){G.glGetProgramInfoLog(program)}
         G.glGenTextures(2,textures,0)
@@ -42,7 +53,29 @@ internal class RavuZoom(context: Context) {
         }
     }
     fun render(video:Int,matrix:FloatArray,w:Int,h:Int,outW:Int,outH:Int) {
+        if(keyW!=w || keyH!=h) {
+            G.glBindTexture(G.GL_TEXTURE_2D,keyTex[0])
+            G.glTexParameteri(G.GL_TEXTURE_2D,G.GL_TEXTURE_MIN_FILTER,G.GL_NEAREST)
+            G.glTexParameteri(G.GL_TEXTURE_2D,G.GL_TEXTURE_MAG_FILTER,G.GL_NEAREST)
+            G.glTexParameteri(G.GL_TEXTURE_2D,G.GL_TEXTURE_WRAP_S,G.GL_CLAMP_TO_EDGE)
+            G.glTexParameteri(G.GL_TEXTURE_2D,G.GL_TEXTURE_WRAP_T,G.GL_CLAMP_TO_EDGE)
+            G.glTexImage2D(G.GL_TEXTURE_2D,0,G.GL_RGBA8,w,h,0,G.GL_RGBA,G.GL_UNSIGNED_BYTE,null)
+            G.glBindFramebuffer(G.GL_FRAMEBUFFER,keyFbo[0])
+            G.glFramebufferTexture2D(G.GL_FRAMEBUFFER,G.GL_COLOR_ATTACHMENT0,G.GL_TEXTURE_2D,keyTex[0],0)
+            check(G.glCheckFramebufferStatus(G.GL_FRAMEBUFFER)==G.GL_FRAMEBUFFER_COMPLETE)
+            keyW=w; keyH=h
+        }
+        G.glBindFramebuffer(G.GL_FRAMEBUFFER,keyFbo[0]); G.glViewport(0,0,w,h); G.glUseProgram(keyProgram)
+        G.glActiveTexture(G.GL_TEXTURE0); G.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES,video)
+        G.glUniform1i(G.glGetUniformLocation(keyProgram,"uVideo"),0)
+        G.glUniform2f(G.glGetUniformLocation(keyProgram,"uSize"),w.toFloat(),h.toFloat())
+        G.glUniformMatrix4fv(G.glGetUniformLocation(keyProgram,"uMatrix"),1,false,matrix,0)
+        val kl=G.glGetAttribLocation(keyProgram,"position")
+        vertices.position(0); G.glEnableVertexAttribArray(kl); G.glVertexAttribPointer(kl,2,G.GL_FLOAT,false,0,vertices)
+        G.glDrawArrays(G.GL_TRIANGLE_STRIP,0,4); G.glDisableVertexAttribArray(kl)
         G.glBindFramebuffer(G.GL_FRAMEBUFFER,0); G.glViewport(0,0,outW,outH); G.glUseProgram(program)
+        G.glActiveTexture(G.GL_TEXTURE3); G.glBindTexture(G.GL_TEXTURE_2D,keyTex[0])
+        G.glUniform1i(G.glGetUniformLocation(program,"uKey"),3)
         G.glActiveTexture(G.GL_TEXTURE0); G.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES,video)
         G.glUniform1i(G.glGetUniformLocation(program,"uVideo"),0)
         G.glUniform2f(G.glGetUniformLocation(program,"uSize"),w.toFloat(),h.toFloat())
@@ -57,5 +90,5 @@ internal class RavuZoom(context: Context) {
         G.glDrawArrays(G.GL_TRIANGLE_STRIP,0,4); G.glDisableVertexAttribArray(loc)
         check(G.glGetError()==G.GL_NO_ERROR){"RAVU render failed"}
     }
-    fun close(){ G.glDeleteTextures(2,textures,0); G.glDeleteProgram(program) }
+    fun close(){ G.glDeleteTextures(2,textures,0); G.glDeleteProgram(program); G.glDeleteProgram(keyProgram); G.glDeleteTextures(1,keyTex,0); G.glDeleteFramebuffers(1,keyFbo,0) }
 }
