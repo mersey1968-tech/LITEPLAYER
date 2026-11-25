@@ -33,27 +33,40 @@ uniform sampler2D restored;
 void main(){
 vec3 rgb=texture(original,uv).rgb;
 float y=dot(rgb,vec3(.299,.587,.114));
-vec2 d=1.0/vec2(textureSize(restored,0));
-float c=texture(restored,uv).r;
-float l=texture(restored,uv-vec2(d.x,0.)).r;
-float r=texture(restored,uv+vec2(d.x,0.)).r;
-float b=texture(restored,uv-vec2(0.,d.y)).r;
-float t=texture(restored,uv+vec2(0.,d.y)).r;
-float gx=abs(r-l), gy=abs(t-b);
-float wx=1.0/(0.012+gx), wy=1.0/(0.012+gy);
-float directional=(wx*(l+r)+wy*(b+t))/(2.0*(wx+wy));
-float detail=c-directional;
-float span=max(max(max(l,r),max(b,t)),c)-min(min(min(l,r),min(b,t)),c);
-float gate=smoothstep(.009,.045,span)*(1.0-.68*smoothstep(.16,.38,span));
-float fine=clamp(detail*1.65*gate,-.047,.047);
-float wide=(texture(restored,uv+vec2(2.*d.x,0.)).r+texture(restored,uv-vec2(2.*d.x,0.)).r+texture(restored,uv+vec2(0.,2.*d.y)).r+texture(restored,uv-vec2(0.,2.*d.y)).r)*.25;
-float depth=clamp((c-wide)*.42*gate,-.025,.025);
-float lo=min(c,min(min(l,r),min(b,t)));
-float hi=max(c,max(max(l,r),max(b,t)));
-float newY=clamp(c+fine+depth,max(0.,lo-.012),min(1.,hi+.012));
+float newY=texture(restored,uv).r;
 color=vec4(clamp(rgb+vec3(newY-y),0.,1.),1.);
 }
 """)
+    private val enhancedPresent=runCatching { graphics("""#version 300 es
+precision highp float;
+in vec2 uv;out vec4 color;
+uniform sampler2D original;
+uniform sampler2D restored;
+void main(){
+    vec3 rgb=texture(original,uv).rgb;
+    float y=dot(rgb,vec3(.299,.587,.114));
+    vec2 stepUV=1.0/vec2(textureSize(restored,0));
+    float center=texture(restored,uv).r;
+    float leftY=texture(restored,uv-vec2(stepUV.x,0.0)).r;
+    float rightY=texture(restored,uv+vec2(stepUV.x,0.0)).r;
+    float bottomY=texture(restored,uv-vec2(0.0,stepUV.y)).r;
+    float topY=texture(restored,uv+vec2(0.0,stepUV.y)).r;
+    float lowY=min(center,min(min(leftY,rightY),min(bottomY,topY)));
+    float highY=max(center,max(max(leftY,rightY),max(bottomY,topY)));
+    float rangeY=highY-lowY;
+    float gate=smoothstep(0.009,0.045,rangeY)*(1.0-0.68*smoothstep(0.16,0.38,rangeY));
+    float dx=abs(rightY-leftY), dy=abs(topY-bottomY);
+    float avgY=((leftY+rightY)*(0.012+dy)+(topY+bottomY)*(0.012+dx))/(2.0*(0.024+dx+dy));
+    float newY=clamp(center+clamp((center-avgY)*1.65*gate,-0.047,0.047),max(0.0,lowY-0.012),min(1.0,highY+0.012));
+    color=vec4(clamp(rgb+vec3(newY-y),0.0,1.0),1.0);
+}
+""") }.onFailure {
+        android.util.Log.e("Reflite GhostStream","Detail shader failed; retaining original GhostStream",it)
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            android.widget.Toast.makeText(context,"GhostStream detail shader failed; original neural renderer active",android.widget.Toast.LENGTH_LONG).show()
+        }
+    }.getOrDefault(0)
+    private val displayProgram get() = if(enhancedPresent!=0) enhancedPresent else present
     private val compute=link(intArrayOf(compile(G.GL_COMPUTE_SHADER,context.assets.open("reflite/ghost.comp").bufferedReader().use{it.readText()})))
     private val layers=context.assets.open("reflite/ghost.layers").bufferedReader().use{r->r.readLines().map{it.split(" ").map(String::toInt)}}
     init {
@@ -148,14 +161,14 @@ color=vec4(clamp(rgb+vec3(newY-y),0.,1.),1.);
             check(G.glGetError()==G.GL_NO_ERROR){"Ghost Stream dispatch failed"}
             valid=true
         }
-        G.glBindFramebuffer(G.GL_FRAMEBUFFER,0);G.glViewport(0,0,outW,outH);G.glUseProgram(present)
+        G.glBindFramebuffer(G.GL_FRAMEBUFFER,0);G.glViewport(0,0,outW,outH);G.glUseProgram(displayProgram)
         G.glActiveTexture(G.GL_TEXTURE0);G.glBindTexture(G.GL_TEXTURE_2D,textures[0])
-        G.glUniform1i(G.glGetUniformLocation(present,"original"),0)
+        G.glUniform1i(G.glGetUniformLocation(displayProgram,"original"),0)
         G.glActiveTexture(G.GL_TEXTURE1);G.glBindTexture(G.GL_TEXTURE_2D,textures[1])
-        G.glUniform1i(G.glGetUniformLocation(present,"restored"),1);draw()
+        G.glUniform1i(G.glGetUniformLocation(displayProgram,"restored"),1);draw()
     }
     fun close(){
         G.glDeleteBuffers(4,buffers,0);G.glDeleteTextures(2,textures,0);G.glDeleteFramebuffers(1,fbo,0)
-        G.glDeleteProgram(capture);G.glDeleteProgram(present);G.glDeleteProgram(compute)
+        G.glDeleteProgram(capture);G.glDeleteProgram(present);if(enhancedPresent!=0)G.glDeleteProgram(enhancedPresent);G.glDeleteProgram(compute)
     }
 }
