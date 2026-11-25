@@ -105,6 +105,63 @@ s=once(s,'private fun draw(program:Int) {','private fun draw(program:Int, cached
 s=once(s,'val loc=attributeLocation(program)','val loc=if(cachedLocation>=0)cachedLocation else attributeLocation(program)')
 s=once(s,'draw(stage.program)','draw(stage.program,drawLocations[idx])')
 
+
+# Persistent geometry: identical 8 floats, same triangle strip and attribute
+# layout. One VAO per attribute location, local to this GL context.
+s=once(s,"    private var composite=0","""    private var composite=0
+    private var geometryBuffer=0
+    private val geometryVaos=HashMap<Int,Int>()
+    private fun prepareGeometry() {
+        val ids=IntArray(1)
+        GLES30.glGenBuffers(1,ids,0)
+        geometryBuffer=ids[0]
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER,geometryBuffer)
+        vertices.position(0)
+        GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER,32,vertices,GLES30.GL_STATIC_DRAW)
+        for (loc in (drawLocations+attributeLocation(composite)).distinct()) {
+            check(loc>=0)
+            GLES30.glGenVertexArrays(1,ids,0)
+            geometryVaos[loc]=ids[0]
+            GLES30.glBindVertexArray(ids[0])
+            GLES30.glEnableVertexAttribArray(loc)
+            GLES30.glVertexAttribPointer(loc,2,GLES30.GL_FLOAT,false,0,0)
+        }
+        GLES30.glBindVertexArray(0)
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER,0)
+    }
+    private val uploadedMatrices=HashMap<Int,FloatArray>()
+    private fun uploadMatrix(program:Int,location:Int,matrix:FloatArray) {
+        if(location<0)return
+        val previous=uploadedMatrices[program]
+        if(previous==null || !previous.contentEquals(matrix)) {
+            GLES30.glUniformMatrix4fv(location,1,false,matrix,0)
+            if(previous==null) uploadedMatrices[program]=matrix.copyOf()
+            else matrix.copyInto(previous)
+        }
+    }
+    private lateinit var cached2D:IntArray
+    private lateinit var cachedExternal:IntArray
+""")
+s=once(s,'        """)\n    }\n    private fun link','        """)\n        prepareGeometry()\n        cached2D=IntArray(maxInputUnits)\n        cachedExternal=IntArray(maxInputUnits)\n    }\n    private fun link')
+s=once(s,'''        vertices.position(0);GLES30.glEnableVertexAttribArray(loc)
+        GLES30.glVertexAttribPointer(loc,2,GLES30.GL_FLOAT,false,0,vertices)
+        GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP,0,4)
+        GLES30.glDisableVertexAttribArray(loc)''','''        GLES30.glBindVertexArray(geometryVaos.getValue(loc))
+        GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP,0,4)
+        GLES30.glBindVertexArray(0)''')
+s=once(s,'val bound2D = IntArray(maxInputUnits) { -1 }','val bound2D = cached2D.apply { fill(-1) }')
+s=once(s,'val boundExternal = IntArray(maxInputUnits) { -1 }','val boundExternal = cachedExternal.apply { fill(-1) }')
+s=once(s,'GLES30.glUniformMatrix4fv(matrixLocations[idx],1,false,matrix,0)','uploadMatrix(stage.program,matrixLocations[idx],matrix)')
+s=once(s,'GLES30.glUniformMatrix4fv(uniformLocation(composite,"uMatrix"),1,false,matrix,0)','uploadMatrix(composite,uniformLocation(composite,"uMatrix"),matrix)')
+s=once(s,'    fun close(){','''    fun close(){
+        geometryVaos.values.forEach { GLES30.glDeleteVertexArrays(1,intArrayOf(it),0) }
+        geometryVaos.clear()
+        GLES30.glDeleteBuffers(1,intArrayOf(geometryBuffer),0)
+        uploadedMatrices.clear()''')
+# Protect original sync correction at the final assembled source boundary.
+assert 'val distance = (6000.0 / fps).toLong().coerceAtLeast(1L)' in main
+assert 'activePlayer.seekTo(position - distance)' in main
+
 # Every embedded GLSL string must stay byte-for-byte identical.
 assert re.findall(r'"""(.*?)"""',before,re.S)==re.findall(r'"""(.*?)"""',s,re.S)
 p.write_text(s)
