@@ -190,7 +190,7 @@ jobs:
                       ghost?.close()
                       ghost = null
                       Log.e("Reflite GhostStream","Ghost Stream unavailable; FSRCNNX fallback",error)
-                      post { android.widget.Toast.makeText(context,"Ghost Stream unavailable; FSRCNNX fallback",android.widget.Toast.LENGTH_LONG).show() }
+                      post { android.widget.Toast.makeText(context,"GhostStream: "+(error.message ?: error.javaClass.simpleName).take(180),android.widget.Toast.LENGTH_LONG).show() }
                       selected?.render(texVideo, transform, workW, workH, outW, outH,
                           diagnosticEnabled, false, originalFrameHeight=srcH)
                   }
@@ -217,8 +217,8 @@ jobs:
       - name: Preserve distinct APK filename
         run: |
           mkdir -p dist
-          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-GhostStream-Detail.apk
+          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-GhostStream-DetailFix.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: Reflite-GhostStream-Detail-APK
-          path: dist/Reflite-GhostStream-Detail.apk
+          name: Reflite-GhostStream-DetailFix-APK
+          path: dist/Reflite-GhostStream-DetailFix.apk
