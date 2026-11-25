@@ -87,7 +87,8 @@ color=vec4(clamp(rgb+vec3(newY-y),0.,1.),1.);
         G.glUniform2i(G.glGetUniformLocation(p,"size"),w,h)
         G.glBindImageTexture(0,images[dst],0,false,0,G.GL_WRITE_ONLY,G.GL_RGBA16F)
         checkGl("stage "+n+" binding")
-        G.glDispatchCompute(((if(n==7)2*w else w)+7)/8,((if(n==7)2*h else h)+7)/8,1)
+        if(n in 1..5) G.glDispatchCompute((w+7)/8,(h+7)/8,1)
+        else G.glDispatchCompute(((if(n==7)2*w else w)+7)/8,((if(n==7)2*h else h)+7)/8,1)
         checkGl("stage "+n+" dispatch")
         G.glMemoryBarrier(G.GL_SHADER_IMAGE_ACCESS_BARRIER_BIT or G.GL_TEXTURE_FETCH_BARRIER_BIT)
     }
