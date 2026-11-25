@@ -49,7 +49,7 @@ internal class RavuZoom(context: Context) {
         G.glUniformMatrix4fv(G.glGetUniformLocation(program,"uMatrix"),1,false,matrix,0)
         for(i in textures.indices) {
             G.glActiveTexture(G.GL_TEXTURE1+i); G.glBindTexture(G.GL_TEXTURE_2D,textures[i])
-            G.glUniform1i(G.glGetUniformLocation(program,if(i==0)"ravu_zoom_lut3" else "ravu_zoom_lut3_ar"),i+1)
+            G.glUniform1i(G.glGetUniformLocation(program,if(i==0)"ravu_zoom_lut2" else "ravu_zoom_lut2_ar"),i+1)
         }
         val loc=G.glGetAttribLocation(program,"position")
         vertices.position(0); G.glEnableVertexAttribArray(loc)
