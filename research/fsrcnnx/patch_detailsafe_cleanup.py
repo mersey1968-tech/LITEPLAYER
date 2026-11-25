@@ -1,7 +1,6 @@
 """Final assembled DetailSafe cleanup; preserve shader source, models and playback timing."""
 from pathlib import Path
 import re
-import hashlib
 root=Path("proj/app/src/main")
 pkg=root/"java/com/example/liteplayer"
 def once(s,a,b):
@@ -55,7 +54,10 @@ s=p.read_text()
 before=s
 s=once(s,"    private val stages = mutableListOf<Stage>()","""    private val stages = mutableListOf<Stage>()
     private val inputProducers = mutableListOf<IntArray>()
-    private val inputUniforms = mutableListOf<List<String>>()
+    private val inputLocations = mutableListOf<IntArray>()
+    private val sizeLocations = mutableListOf<Int>()
+    private val matrixLocations = mutableListOf<Int>()
+    private val drawLocations = mutableListOf<Int>()
     private fun resolveStageInputs() {
         val producers = HashMap<String, Int>()
         stages.forEachIndexed { idx, stage ->
@@ -63,7 +65,10 @@ s=once(s,"    private val stages = mutableListOf<Stage>()","""    private val st
                 val name = stage.inputs[unit]
                 if (name == "LUMA") -1 else producers[name] ?: error("Missing network input "+name)
             })
-            inputUniforms.add(stage.inputs.map { "u_"+it })
+            inputLocations.add(IntArray(stage.inputs.size) { unit -> uniformLocation(stage.program, "u_"+stage.inputs[unit]) })
+            sizeLocations.add(uniformLocation(stage.program, "uSize"))
+            matrixLocations.add(if ("LUMA" in stage.inputs) uniformLocation(stage.program, "uMatrix") else -1)
+            drawLocations.add(attributeLocation(stage.program))
             producers[stage.output] = idx
         }
     }
@@ -71,9 +76,35 @@ s=once(s,"    private val stages = mutableListOf<Stage>()","""    private val st
 s=once(s,'        composite=link(vertexShader,','        resolveStageInputs()\n        composite=link(vertexShader,')
 s=once(s,"        val named=mutableMapOf<String,Int>()\n","")
 s=once(s,'val texture=if(name=="LUMA")video else named[name]?:error("Missing network input "+name)','val sourceIndex=inputProducers[idx][unit]\n                val texture=if(sourceIndex<0)video else targets[sourceIndex].texture')
-s=once(s,'setUniform1i(stage.program,"u_"+name,unit)','setUniform1i(stage.program,inputUniforms[idx][unit],unit)')
+s=once(s,'setUniform1i(stage.program,"u_"+name,unit)','if (changed(stage.program,inputLocations[idx][unit],unit.toLong())) GLES30.glUniform1i(inputLocations[idx][unit],unit)')
 s=once(s,'draw(stage.program);named[stage.output]=t.texture','draw(stage.program)')
 assert not re.search(r'\bnamed\b',s)
+s=once(s,'setUniform2f(stage.program,"uSize",w.toFloat(),h.toFloat())',"""val sizeBits=(w.toFloat().toRawBits().toLong() shl 32) or (h.toFloat().toRawBits().toLong() and 0xffffffffL)
+            if (changed(stage.program,sizeLocations[idx],sizeBits))
+                GLES30.glUniform2f(sizeLocations[idx],w.toFloat(),h.toFloat())""")
+s=once(s,'uniformLocation(stage.program,"uMatrix")','matrixLocations[idx]')
+# Scope binding cache to a single inference: no assumptions about other renderers.
+s=once(s,'        var viewportW = -1','''        var activeUnit = -1
+        val bound2D = IntArray(maxInputUnits) { -1 }
+        val boundExternal = IntArray(maxInputUnits) { -1 }
+        var viewportW = -1''')
+s=once(s,'    private val inputProducers = mutableListOf<IntArray>()','    private val inputProducers = mutableListOf<IntArray>()\n    private var maxInputUnits = 1')
+s=once(s,'            inputProducers.add(IntArray(stage.inputs.size)', '            maxInputUnits = maxOf(maxInputUnits,stage.inputs.size)\n            inputProducers.add(IntArray(stage.inputs.size)')
+s=once(s,'''                GLES30.glActiveTexture(GLES30.GL_TEXTURE0+unit)
+                GLES30.glBindTexture(if(name=="LUMA")GLES11Ext.GL_TEXTURE_EXTERNAL_OES else GLES30.GL_TEXTURE_2D,texture)''','''                val bindings=if(sourceIndex<0)boundExternal else bound2D
+                if (bindings[unit]!=texture) {
+                    if (activeUnit!=unit) {
+                        GLES30.glActiveTexture(GLES30.GL_TEXTURE0+unit)
+                        activeUnit=unit
+                    }
+                    GLES30.glBindTexture(if(sourceIndex<0)GLES11Ext.GL_TEXTURE_EXTERNAL_OES else GLES30.GL_TEXTURE_2D,texture)
+                    bindings[unit]=texture
+                }''')
+# Draw attribute locations are immutable for linked programs.
+s=once(s,'private fun draw(program:Int) {','private fun draw(program:Int, cachedLocation:Int = -1) {')
+s=once(s,'val loc=attributeLocation(program)','val loc=if(cachedLocation>=0)cachedLocation else attributeLocation(program)')
+s=once(s,'draw(stage.program)','draw(stage.program,drawLocations[idx])')
+
 # Every embedded GLSL string must stay byte-for-byte identical.
 assert re.findall(r'"""(.*?)"""',before,re.S)==re.findall(r'"""(.*?)"""',s,re.S)
 p.write_text(s)
