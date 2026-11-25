@@ -1,7 +1,7 @@
-name: Reflite DetailSafe Clean
+name: Reflite DetailSafe Sharp
 on:
   push:
-    branches: [reflite-detailsafe-clean]
+    branches: [reflite-detailsafe-clean-sharp]
   workflow_dispatch:
 jobs:
   build:
@@ -110,8 +110,8 @@ jobs:
               return s.replace(a,b,1)
           p=root/"FsrcnnxPipeline.kt"
           s=p.read_text()
-          s=once(s,"float tvTextureStrength=1.0+0.21*", "float tvTextureStrength=1.0+0.85*")
-          s=once(s,"textureGate,-.024,.024);","textureGate,-mix(.024,.032,1.0-smoothstep(770.0,910.0,uOriginalFrameHeight)),\n                    mix(.024,.032,1.0-smoothstep(770.0,910.0,uOriginalFrameHeight)));")
+          s=once(s,"float tvTextureStrength=1.0+0.21*", "float tvTextureStrength=1.0+1.55*")
+          s=once(s,"textureGate,-.024,.024);","textureGate,-mix(.024,.045,1.0-smoothstep(770.0,910.0,uOriginalFrameHeight)),\n                    mix(.024,.045,1.0-smoothstep(770.0,910.0,uOriginalFrameHeight)));")
           s=once(s,"rgb=mix(rawRgb,weighted/total,0.22*detailProtection);","rgb=mix(rawRgb,weighted/total,mix(0.22,0.08,1.0-smoothstep(770.0,910.0,uOriginalFrameHeight))*detailProtection);")
           p.write_text(s)
           p=root/"ReferenceScalerView.kt"
@@ -189,18 +189,18 @@ jobs:
       - name: Preserve distinct APK filename
         run: |
           mkdir -p dist
-          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-720p-DetailSafe-Clean.apk
+          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-720p-DetailSafe-Sharp.apk
       - name: Verify APK ZIP alignment and signing
         run: |
           set -eu
           BT=$(find "${ANDROID_HOME}/build-tools" -name zipalign -type f | sort -V | tail -1)
           test -x "$BT"
-          "$BT" -c -v 4 dist/Reflite-720p-DetailSafe-Clean.apk
-          "$(dirname "$BT")/apksigner" verify --verbose dist/Reflite-720p-DetailSafe-Clean.apk
-          if "$(dirname "$BT")/aapt" dump badging dist/Reflite-720p-DetailSafe-Clean.apk | grep -q application-debuggable; then
+          "$BT" -c -v 4 dist/Reflite-720p-DetailSafe-Sharp.apk
+          "$(dirname "$BT")/apksigner" verify --verbose dist/Reflite-720p-DetailSafe-Sharp.apk
+          if "$(dirname "$BT")/aapt" dump badging dist/Reflite-720p-DetailSafe-Sharp.apk | grep -q application-debuggable; then
             echo "Unexpected debuggable APK"; exit 1
           fi
       - uses: actions/upload-artifact@v4
         with:
-          name: Reflite-720p-DetailSafe-Clean-APK
-          path: dist/Reflite-720p-DetailSafe-Clean.apk
+          name: Reflite-720p-DetailSafe-Sharp-APK
+          path: dist/Reflite-720p-DetailSafe-Sharp.apk
