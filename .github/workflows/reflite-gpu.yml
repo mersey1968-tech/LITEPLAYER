@@ -128,6 +128,51 @@ jobs:
           PY
       - name: Remove obsolete code and optimize stage bindings without changing picture
         run: python3 research/fsrcnnx/patch_detailsafe_cleanup.py
+      - name: Disable debugging without shrinking or obfuscating
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p=Path("proj/app/build.gradle.kts")
+          s=p.read_text()
+          if re.search(r'\bdebug\s*\{',s):
+              s=re.sub(r'(\bdebug\s*\{)',r'\1\n            isDebuggable = false\n            isMinifyEnabled = false\n            isShrinkResources = false',s,count=1)
+          elif re.search(r'\bbuildTypes\s*\{',s):
+              s=re.sub(r'(\bbuildTypes\s*\{)',r'\1\n        debug {\n            isDebuggable = false\n            isMinifyEnabled = false\n            isShrinkResources = false\n        }',s,count=1)
+          else:
+              s=re.sub(r'(\bandroid\s*\{)',r'\1\n    buildTypes { debug { isDebuggable = false; isMinifyEnabled = false; isShrinkResources = false } }',s,count=1)
+          s=re.sub(r'isMinifyEnabled\s*=\s*true','isMinifyEnabled = false',s)
+          s=re.sub(r'isShrinkResources\s*=\s*true','isShrinkResources = false',s)
+          p.write_text(s)
+          p=Path("proj/app/src/main/AndroidManifest.xml")
+          s=p.read_text()
+          s=re.sub(r'\s+android:debuggable="[^"]*"','',s)
+          p.write_text(s)
+          # Suppress standalone app-owned Log calls, without touching shader
+          # strings, failure handling, user-facing errors or playback logic.
+          root=Path("proj/app/src/main/java/com/example/liteplayer")
+          count=0
+          for p in root.rglob("*.kt"):
+              s=p.read_text()
+              matches=list(re.finditer(r'(?m)^([ \t]*)(?:android\.util\.)?Log\.[vdiewtf]\(',s))
+              for m in reversed(matches):
+                  i=m.end(); depth=1; quote=None; escaped=False
+                  while i<len(s) and depth:
+                      c=s[i]
+                      if quote:
+                          if escaped: escaped=False
+                          elif c=='\\': escaped=True
+                          elif c==quote: quote=None
+                      elif c in ('"',"'"): quote=c
+                      elif c=='(': depth+=1
+                      elif c==')': depth-=1
+                      i+=1
+                  if depth==0 and not s[i:s.find('\n',i) if '\n' in s[i:] else len(s)].strip():
+                      s=s[:m.start()]+m[1]+"Unit"+s[i:]
+                      count+=1
+              p.write_text(s)
+          print("Removed standalone application diagnostic log calls:",count)
+          PY
       - uses: android-actions/setup-android@v3
         with:
           packages: "platform-tools"
@@ -152,6 +197,9 @@ jobs:
           test -x "$BT"
           "$BT" -c -v 4 dist/Reflite-720p-DetailSafe-Clean.apk
           "$(dirname "$BT")/apksigner" verify --verbose dist/Reflite-720p-DetailSafe-Clean.apk
+          if "$(dirname "$BT")/aapt" dump badging dist/Reflite-720p-DetailSafe-Clean.apk | grep -q application-debuggable; then
+            echo "Unexpected debuggable APK"; exit 1
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: Reflite-720p-DetailSafe-Clean-APK
