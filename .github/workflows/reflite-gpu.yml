@@ -1,7 +1,7 @@
-name: Reflite Reuse Draw
+name: Reflite Clean Pipeline
 on:
   push:
-    branches: [reflite-v2-reuse-draw]
+    branches: [reflite-v2-clean-pipeline]
   workflow_dispatch:
 jobs:
   build:
@@ -100,6 +100,55 @@ jobs:
         run: python3 research/fsrcnnx/patch_gl_cache.py
       - name: Reuse duplicate neural inference and cache scalar uniform values
         run: python3 research/fsrcnnx/patch_reuse_draw.py
+      - name: Remove unused renderer code and redundant frame work
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          root=Path("proj/app/src/main/java/com/example/liteplayer")
+          def once(s,a,b):
+              assert s.count(a)==1,(a,s.count(a))
+              return s.replace(a,b,1)
+          p=root/"ReferenceScalerView.kt"
+          s=p.read_text()
+          # No legacy scaler methods are called by the final SDR renderer.
+          start=s.index("    private fun ensureFramebuffer(")
+          end=s.index("    private fun fail(",start)
+          s=s[:start]+s[end:]
+          start=s.index("    companion object {")
+          s=s[:start]+"}\n"
+          for a in ["    private var texIntermediate = 0\n","    private var framebuffer = 0\n","    private var allocatedW = 0\n","    private var allocatedH = 0\n"]:
+              s=once(s,a,"")
+          s=once(s,"    private val vertices = ByteBuffer.allocateDirect(32).order(ByteOrder.nativeOrder()).asFloatBuffer()\n        .apply { put(floatArrayOf(-1f,-1f, 1f,-1f, -1f,1f, 1f,1f)); position(0) }\n","")
+          s=once(s,"            if (texIntermediate!=0) GLES30.glDeleteTextures(1,intArrayOf(texIntermediate),0)\n            if (framebuffer!=0) GLES30.glDeleteFramebuffers(1,intArrayOf(framebuffer),0)\n            texIntermediate=0\n            framebuffer=0\n","")
+          s=s.replace("import java.nio.ByteBuffer\n","").replace("import java.nio.ByteOrder\n","")
+          s=once(s,"        diagnosticEnabled = enabled\n        requestRender()","        if (diagnosticEnabled == enabled) return\n        diagnosticEnabled = enabled\n        requestRender()")
+          s=once(s,"        queueEvent { srcW = w; srcH = h; surfaceTexture?.setDefaultBufferSize(w,h); allocatedW = 0 }","        queueEvent {\n            if (srcW != w || srcH != h) {\n                srcW = w; srcH = h\n                surfaceTexture?.setDefaultBufferSize(w,h)\n            }\n        }")
+          p.write_text(s)
+          p=root/"FsrcnnxPipeline.kt"
+          s=p.read_text()
+          # Precompute exact producer indices; physical target IDs still come
+          # from the existing dependency-aware allocation on every resize.
+          anchor="    private val targets = mutableListOf<Target>()"
+          s=once(s,anchor,anchor+"""
+              private val inputProducers: List<IntArray> by lazy(LazyThreadSafetyMode.NONE) {
+                  val producers = HashMap<String, Int>()
+                  stages.mapIndexed { idx, stage ->
+                      val inputs = IntArray(stage.inputs.size) { unit ->
+                          val name = stage.inputs[unit]
+                          if (name == "LUMA") -1 else producers[name]
+                              ?: error("Missing network input " + name)
+                      }
+                      producers[stage.output] = idx
+                      inputs
+                  }
+              }
+          """)
+          s=once(s,"        val named=mutableMapOf<String,Int>()","        val producers = inputProducers")
+          s=once(s,'val texture=if(name=="LUMA")video else named[name]?:error("Missing network input "+name)','val producer = producers[idx][unit]\n                val texture=if(producer < 0) video else targets[producer].texture')
+          s=once(s,"draw(stage.program);named[stage.output]=t.texture","draw(stage.program)")
+          p.write_text(s)
+          print("Clean pipeline staged; neural shaders, precision and adaptive timing unchanged")
+          PY
       - uses: android-actions/setup-android@v3
         with:
           packages: "platform-tools"
@@ -116,8 +165,8 @@ jobs:
       - name: Preserve distinct APK filename
         run: |
           mkdir -p dist
-          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-Reuse-Draw.apk
+          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-CleanPipeline.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: Reflite-Reuse-Draw-APK
-          path: dist/Reflite-Reuse-Draw.apk
+          name: Reflite-CleanPipeline-APK
+          path: dist/Reflite-CleanPipeline.apk
