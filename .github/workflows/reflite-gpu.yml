@@ -1,7 +1,7 @@
-name: Reflite ArtCNN CMP
+name: Reflite ArtCNN Verify
 on:
   push:
-    branches: [reflite-artcnn-cmp]
+    branches: [reflite-artcnn-verify]
   workflow_dispatch:
 jobs:
   build:
@@ -180,8 +180,8 @@ jobs:
               global s
               assert s.count(a)==1,(a,s.count(a))
               s=s.replace(a,b,1)
-          once("    private var neuralScale = 1.0f","    private var neuralScale = 1.0f\n    private var ghost: ArtCNN? = null\n    private var ghostUnavailable = false")
-          once("            failed = false","            failed = false\n            ghost = null\n            ghostUnavailable = false")
+          once("    private var neuralScale = 1.0f","    private var neuralScale = 1.0f\n    private var ghost: ArtCNN? = null\n    private var ghostUnavailable = false\n    private var artConfirmed = false")
+          once("            failed = false","            failed = false\n            ghost = null\n            ghostUnavailable = false\n            artConfirmed = false")
           once("            selected?.render(texVideo, transform, workW, workH, outW, outH,\n                diagnosticEnabled, false, originalFrameHeight=srcH, reuseInference=!newFrame)","""            if (srcH <= 800 && !ghostUnavailable) {
                   try {
                       val engine = ghost ?: ArtCNN(context).also {
@@ -189,6 +189,10 @@ jobs:
                           Log.i("Reflite ArtCNN", "Trained ArtCNN active")
                       }
                       engine.render(texVideo,transform,srcW,srcH,outW,outH,newFrame)
+                      if (!artConfirmed) {
+                          artConfirmed = true
+                          post { android.widget.Toast.makeText(context,"ArtCNN CMP ACTIVE: "+srcW+"x"+srcH,android.widget.Toast.LENGTH_LONG).show() }
+                      }
                   } catch (error: Throwable) {
                       ghostUnavailable = true
                       ghost?.close()
@@ -221,8 +225,8 @@ jobs:
       - name: Preserve distinct APK filename
         run: |
           mkdir -p dist
-          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-ArtCNN-CMP.apk
+          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-ArtCNN-Verify.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: Reflite-ArtCNN-CMP-APK
-          path: dist/Reflite-ArtCNN-CMP.apk
+          name: Reflite-ArtCNN-Verify-APK
+          path: dist/Reflite-ArtCNN-Verify.apk
