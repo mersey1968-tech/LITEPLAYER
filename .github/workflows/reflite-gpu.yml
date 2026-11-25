@@ -1,7 +1,7 @@
-name: Reflite 720p Detail Safe
+name: Reflite DetailSafe Clean
 on:
   push:
-    branches: [reflite-v2-720p-detail-safe]
+    branches: [reflite-detailsafe-clean]
   workflow_dispatch:
 jobs:
   build:
@@ -126,6 +126,8 @@ jobs:
           p.write_text(s)
           print("720p detail and dead helpers staged on Reuse Draw; timing unchanged")
           PY
+      - name: Remove obsolete code and optimize stage bindings without changing picture
+        run: python3 research/fsrcnnx/patch_detailsafe_cleanup.py
       - uses: android-actions/setup-android@v3
         with:
           packages: "platform-tools"
@@ -142,8 +144,8 @@ jobs:
       - name: Preserve distinct APK filename
         run: |
           mkdir -p dist
-          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-720p-DetailSafe.apk
+          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-720p-DetailSafe-Clean.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: Reflite-720p-DetailSafe-APK
-          path: dist/Reflite-720p-DetailSafe.apk
+          name: Reflite-720p-DetailSafe-Clean-APK
+          path: dist/Reflite-720p-DetailSafe-Clean.apk
