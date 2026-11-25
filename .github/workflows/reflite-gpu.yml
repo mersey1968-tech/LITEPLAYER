@@ -145,6 +145,13 @@ jobs:
         run: |
           mkdir -p dist
           cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-720p-DetailSafe-Clean.apk
+      - name: Verify APK ZIP alignment and signing
+        run: |
+          set -eu
+          BT=$(find "${ANDROID_HOME}/build-tools" -name zipalign -type f | sort -V | tail -1)
+          test -x "$BT"
+          "$BT" -c -v 4 dist/Reflite-720p-DetailSafe-Clean.apk
+          "$(dirname "$BT")/apksigner" verify --verbose dist/Reflite-720p-DetailSafe-Clean.apk
       - uses: actions/upload-artifact@v4
         with:
           name: Reflite-720p-DetailSafe-Clean-APK
