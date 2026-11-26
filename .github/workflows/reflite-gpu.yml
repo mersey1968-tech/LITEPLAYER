@@ -1,7 +1,7 @@
-name: Reflite Max GLES Prototype
+name: Reflite Current Compute
 on:
   push:
-    branches: [reflite-fsrcnnx-vulkan]
+    branches: [reflite-compute-current]
   workflow_dispatch:
 jobs:
   build:
@@ -130,6 +130,16 @@ jobs:
         run: python3 research/fsrcnnx/patch_detailsafe_cleanup.py
       - name: Apply isolated Max GLES prototype
         run: python3 research/fsrcnnx/patch_max_gles.py
+      - name: Stage pinned current compute models
+        run: |
+          set -eu
+          D=proj/app/src/main/assets/reflite
+          curl -fLsS https://raw.githubusercontent.com/Artoriuz/ArtCNN/0837e5326e710f49e2ab0a8d995da0708047442e/GLSL/ArtCNN_C4F16_DS.glsl -o "$D/ArtCNN.glsl"
+          curl -fLsS https://raw.githubusercontent.com/funnyplanter/CuNNy/906031bb00c15dd6a6bbbaa21c0eb0b724ca8437/mpv/ds/CuNNy-4x16-DS.glsl -o "$D/CuNNy.glsl"
+          cp research/fsrcnnx/CurrentComputePipeline.kt proj/app/src/main/java/com/example/liteplayer/
+          python3 research/fsrcnnx/patch_compute_current.py
+          sudo apt-get update -qq && sudo apt-get install -y glslang-tools
+          for f in "$D"/*.comp; do glslangValidator -S comp "$f"; done
       - name: Disable debugging without shrinking or obfuscating
         run: |
           python3 - <<'PY'
@@ -191,18 +201,18 @@ jobs:
       - name: Preserve distinct APK filename
         run: |
           mkdir -p dist
-          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-Max-GLES-Prototype.apk
+          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-CurrentCompute.apk
       - name: Verify APK ZIP alignment and signing
         run: |
           set -eu
           BT=$(find "${ANDROID_HOME}/build-tools" -name zipalign -type f | sort -V | tail -1)
           test -x "$BT"
-          "$BT" -c -v 4 dist/Reflite-Max-GLES-Prototype.apk
-          "$(dirname "$BT")/apksigner" verify --verbose dist/Reflite-Max-GLES-Prototype.apk
-          if "$(dirname "$BT")/aapt" dump badging dist/Reflite-Max-GLES-Prototype.apk | grep -q application-debuggable; then
+          "$BT" -c -v 4 dist/Reflite-CurrentCompute.apk
+          "$(dirname "$BT")/apksigner" verify --verbose dist/Reflite-CurrentCompute.apk
+          if "$(dirname "$BT")/aapt" dump badging dist/Reflite-CurrentCompute.apk | grep -q application-debuggable; then
             echo "Unexpected debuggable APK"; exit 1
           fi
       - uses: actions/upload-artifact@v4
         with:
-          name: Reflite-Max-GLES-Prototype-APK
-          path: dist/Reflite-Max-GLES-Prototype.apk
+          name: Reflite-CurrentCompute-APK
+          path: dist/Reflite-CurrentCompute.apk
