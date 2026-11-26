@@ -175,6 +175,27 @@ jobs:
               p.write_text(s)
           print("Removed standalone application diagnostic log calls:",count)
           PY
+      - name: Use Android legacy native library extraction packaging
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p=Path("proj/app/build.gradle.kts")
+          s=p.read_text()
+          # Keep existing packaging exclusions and replace only native library packaging.
+          if re.search(r'useLegacyPackaging\s*=\s*(true|false)',s):
+              s=re.sub(r'useLegacyPackaging\s*=\s*(true|false)','useLegacyPackaging = true',s)
+          else:
+              s,n=re.subn(r'\bandroid\s*\{','android {\n    packaging { jniLibs { useLegacyPackaging = true } }',s,count=1)
+              assert n==1
+          p.write_text(s)
+          p=Path("proj/app/src/main/AndroidManifest.xml")
+          s=p.read_text()
+          s=re.sub(r'\s+android:extractNativeLibs="[^"]*"','',s)
+          s,n=re.subn(r'<application\b','<application android:extractNativeLibs="true"',s,count=1)
+          assert n==1
+          p.write_text(s)
+          PY
       - uses: android-actions/setup-android@v3
         with:
           packages: "platform-tools"
@@ -191,18 +212,44 @@ jobs:
       - name: Preserve distinct APK filename
         run: |
           mkdir -p dist
-          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-Max-Recovery.apk
+          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-Max-Spline36-LegacyPack.apk
       - name: Verify APK ZIP alignment and signing
         run: |
           set -eu
           BT=$(find "${ANDROID_HOME}/build-tools" -name zipalign -type f | sort -V | tail -1)
           test -x "$BT"
-          "$BT" -c -v 4 dist/Reflite-Max-Recovery.apk
-          "$(dirname "$BT")/apksigner" verify --verbose dist/Reflite-Max-Recovery.apk
-          if "$(dirname "$BT")/aapt" dump badging dist/Reflite-Max-Recovery.apk | grep -q application-debuggable; then
+          "$BT" -c -v 4 dist/Reflite-Max-Spline36-LegacyPack.apk
+          "$(dirname "$BT")/apksigner" verify --verbose dist/Reflite-Max-Spline36-LegacyPack.apk
+          if "$(dirname "$BT")/aapt" dump badging dist/Reflite-Max-Spline36-LegacyPack.apk | grep -q application-debuggable; then
             echo "Unexpected debuggable APK"; exit 1
           fi
+      - name: Validate packaged APK and native library compression
+        run: |
+          python3 - <<'PY'
+          import zipfile
+          p="dist/Reflite-Max-Spline36-LegacyPack.apk"
+          with zipfile.ZipFile(p) as z:
+              assert z.testzip() is None
+              libs=[i for i in z.infolist() if i.filename.startswith("lib/") and i.filename.endswith(".so")]
+              assert libs and all(i.compress_type==zipfile.ZIP_DEFLATED for i in libs)
+              assert any(i.filename.startswith("lib/arm64-v8a/") for i in libs)
+              print("Validated compressed ARM native libraries",len(libs))
+          PY
+      - name: Enable Android emulator KVM access
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Attempt real API 30 Android installation
+        uses: reactivecircus/android-emulator-runner@v2
+        continue-on-error: true
+        with:
+          api-level: 30
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: adb shell getprop ro.product.cpu.abilist && adb install dist/Reflite-Max-Spline36-LegacyPack.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: Reflite-Max-Recovery-APK
-          path: dist/Reflite-Max-Recovery.apk
+          name: Reflite-Max-Spline36-LegacyPack-APK
+          path: dist/Reflite-Max-Spline36-LegacyPack.apk
