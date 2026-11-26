@@ -25,7 +25,7 @@ p=root/"ReferenceScalerView.kt"
 s=p.read_text()
 s=once(s,'context: Context','context: Context, private val maxMode: Boolean = false, private val sourceFps: Float = 24f')
 s=s.replace('FsrcnnxPipeline(trainedModel)','FsrcnnxPipeline(trainedModel, maxMode)').replace('FsrcnnxPipeline(model16)','FsrcnnxPipeline(model16, maxMode)').replace('FsrcnnxPipeline(neuralModel16)','FsrcnnxPipeline(neuralModel16, maxMode)')
-s=s.replace('srcH <= 800 &&','(if (maxMode) sourceFps < 50f else srcH <= 800) &&')
+s=s.replace('srcH <= 800 &&','(if (maxMode) sourceFps < 50f && srcH <= 800 && srcW <= 1280 else srcH <= 800) &&')
 p.write_text(s)
 p=root/"FsrcnnxPipeline.kt"
 s=p.read_text()
@@ -47,7 +47,51 @@ s=once(s,'        """)\n        prepareGeometry()','''        """
             float n3=texelFetch(uNeural,clamp(b0+ivec2(1,1),ivec2(0),lim),0).r;
             return clamp(cubic,min(min(n0,n1),min(n2,n3)),max(max(n0,n1),max(n2,n3)));
         """.trimIndent())
-        composite=link(vertexShader,if(maxMode) maxSource else compositeSource)
+        val spline = """
+            float spline36(float t) {
+                float x=abs(t);
+                if(x<1.0) return ((13.0/11.0*x-453.0/209.0)*x-3.0/209.0)*x+1.0;
+                if(x<2.0) { x-=1.0; return ((-6.0/11.0*x+270.0/209.0)*x-156.0/209.0)*x; }
+                if(x<3.0) { x-=2.0; return ((1.0/11.0*x-45.0/209.0)*x+26.0/209.0)*x; }
+                return 0.0;
+            }
+            float splineNeural(vec2 pos) {
+                vec2 x=pos*uNeuralSize-0.5;
+                vec2 b=floor(x), f=fract(x);
+                vec2 w[5], p[5];
+                vec2 c0=vec2(spline36(f.x),spline36(f.y));
+                vec2 c1=vec2(spline36(1.0-f.x),spline36(1.0-f.y));
+                w[0]=vec2(spline36(2.0+f.x),spline36(2.0+f.y));
+                w[1]=vec2(spline36(1.0+f.x),spline36(1.0+f.y));
+                w[2]=c0+c1;
+                w[3]=vec2(spline36(2.0-f.x),spline36(2.0-f.y));
+                w[4]=vec2(spline36(3.0-f.x),spline36(3.0-f.y));
+                p[0]=(b-1.5)/uNeuralSize;
+                p[1]=(b-0.5)/uNeuralSize;
+                p[2]=(b+0.5+c1/w[2])/uNeuralSize;
+                p[3]=(b+2.5)/uNeuralSize;
+                p[4]=(b+3.5)/uNeuralSize;
+                float sum=0.0, total=0.0;
+                for(int j=0;j<5;j++) for(int i=0;i<5;i++) {
+                    float k=w[i].x*w[j].y;
+                    sum+=k*texture(uNeural,vec2(p[i].x,p[j].y)).r;
+                    total+=k;
+                }
+                ivec2 q=ivec2(b), lim=ivec2(uNeuralSize)-ivec2(1);
+                float a=texelFetch(uNeural,clamp(q,ivec2(0),lim),0).r;
+                float d=texelFetch(uNeural,clamp(q+ivec2(1,0),ivec2(0),lim),0).r;
+                float e=texelFetch(uNeural,clamp(q+ivec2(0,1),ivec2(0),lim),0).r;
+                float g=texelFetch(uNeural,clamp(q+ivec2(1,1),ivec2(0),lim),0).r;
+                float lo=min(min(a,d),min(e,g)), hi=max(max(a,d),max(e,g));
+                float m=min(0.012,0.12*(hi-lo));
+                return clamp(sum/total,lo-m,hi+m);
+            }
+        """.trimIndent()
+        val maxSplineSource=maxSource.replace("void main(){",spline+"\\nvoid main(){")
+            .replace("uCubicNeural>0.5?cubicNeural(uv):texture(uNeural,uv).r",
+                "uCubicNeural>0.5?splineNeural(uv):texture(uNeural,uv).r")
+        check(maxSplineSource.contains("?splineNeural(uv)"))
+        composite=link(vertexShader,if(maxMode) maxSplineSource else compositeSource)
         prepareGeometry()''')
 p.write_text(s)
 print("Max first-stage prototype: fps-selected model, single-channel final target and strict anti-ringing; six-frame sync preserved")
