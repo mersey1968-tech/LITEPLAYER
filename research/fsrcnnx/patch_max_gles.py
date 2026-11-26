@@ -47,7 +47,15 @@ s=once(s,'        """)\n        prepareGeometry()','''        """
             float n3=texelFetch(uNeural,clamp(b0+ivec2(1,1),ivec2(0),lim),0).r;
             return clamp(cubic,min(min(n0,n1),min(n2,n3)),max(max(n0,n1),max(n2,n3)));
         """.trimIndent())
-        composite=link(vertexShader,if(maxMode) maxSource else compositeSource)
+        // Film detail: retain original trained reconstruction and avoid
+        // averaging away low-contrast source texture on low-resolution material.
+        val filmSource=maxSource.replace(
+            "rgb=mix(rawRgb,weighted/total,mix(0.22,0.08,1.0-smoothstep(770.0,910.0,uOriginalFrameHeight))*detailProtection);",
+            "rgb=mix(rawRgb,weighted/total,0.22*smoothstep(770.0,910.0,uOriginalFrameHeight)*detailProtection);")
+            .replace("return clamp(cubic,min(min(n0,n1),min(n2,n3)),max(max(n0,n1),max(n2,n3)));",
+                "float lo4=min(min(n0,n1),min(n2,n3)); float hi4=max(max(n0,n1),max(n2,n3)); float margin=min(0.008,0.10*(hi4-lo4))*(1.0-smoothstep(770.0,910.0,uOriginalFrameHeight)); return clamp(cubic,lo4-margin,hi4+margin);")
+        check(filmSource.contains("float lo4=") && filmSource.contains("0.22*smoothstep(770.0,910.0,uOriginalFrameHeight)"))
+        composite=link(vertexShader,if(maxMode) filmSource else compositeSource)
         prepareGeometry()''')
 p.write_text(s)
 print("Max first-stage prototype: fps-selected model, single-channel final target and strict anti-ringing; six-frame sync preserved")
