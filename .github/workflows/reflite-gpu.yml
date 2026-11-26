@@ -200,10 +200,11 @@ jobs:
           "$BT" -c -v 4 dist/Reflite-Max-Spline36-Compat.apk
           KS="$RUNNER_TEMP/reflite-compat.jks"
           keytool -genkeypair -keystore "$KS" -storepass android -keypass android -alias reflite -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Reflite Test" -storetype JKS
-          "$(dirname "$BT")/apksigner" sign --ks "$KS" --ks-key-alias reflite --ks-pass pass:android --key-pass pass:android --v1-signing-enabled true --v2-signing-enabled true --v3-signing-enabled true --v4-signing-enabled false dist/Reflite-Max-Spline36-Compat.apk
+          "$(dirname "$BT")/apksigner" sign --ks "$KS" --ks-key-alias reflite --ks-pass pass:android --key-pass pass:android --min-sdk-version 23 --v1-signing-enabled true --v2-signing-enabled true --v3-signing-enabled true --v4-signing-enabled false dist/Reflite-Max-Spline36-Compat.apk
           "$BT" -c -v 4 dist/Reflite-Max-Spline36-Compat.apk
           "$(dirname "$BT")/apksigner" verify --verbose --print-certs --min-sdk-version 24 dist/Reflite-Max-Spline36-Compat.apk | tee "$RUNNER_TEMP/reflite-verify.txt"
-          grep -F 'Verified using v1 scheme (JAR signing): true' "$RUNNER_TEMP/reflite-verify.txt"
+          "$(dirname "$BT")/apksigner" verify --verbose --min-sdk-version 23 --max-sdk-version 23 dist/Reflite-Max-Spline36-Compat.apk | tee "$RUNNER_TEMP/reflite-v1.txt"
+          grep -F 'Verified using v1 scheme (JAR signing): true' "$RUNNER_TEMP/reflite-v1.txt"
           grep -F 'Verified using v2 scheme (APK Signature Scheme v2): true' "$RUNNER_TEMP/reflite-verify.txt"
           "$(dirname "$BT")/aapt" dump badging dist/Reflite-Max-Spline36-Compat.apk
           unzip -t dist/Reflite-Max-Spline36-Compat.apk
