@@ -1,7 +1,7 @@
-name: Reflite Max GLES Prototype
+name: Reflite Max Spline36 Clean
 on:
   push:
-    branches: [reflite-fsrcnnx-vulkan]
+    branches: [reflite-max-spline-clean]
   workflow_dispatch:
 jobs:
   build:
@@ -191,18 +191,18 @@ jobs:
       - name: Preserve distinct APK filename
         run: |
           mkdir -p dist
-          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-Max-GLES-Prototype.apk
+          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-Max-Spline36-Clean.apk
       - name: Verify APK ZIP alignment and signing
         run: |
           set -eu
           BT=$(find "${ANDROID_HOME}/build-tools" -name zipalign -type f | sort -V | tail -1)
           test -x "$BT"
-          "$BT" -c -v 4 dist/Reflite-Max-GLES-Prototype.apk
-          "$(dirname "$BT")/apksigner" verify --verbose dist/Reflite-Max-GLES-Prototype.apk
-          if "$(dirname "$BT")/aapt" dump badging dist/Reflite-Max-GLES-Prototype.apk | grep -q application-debuggable; then
+          "$BT" -c -v 4 dist/Reflite-Max-Spline36-Clean.apk
+          "$(dirname "$BT")/apksigner" verify --verbose dist/Reflite-Max-Spline36-Clean.apk
+          if "$(dirname "$BT")/aapt" dump badging dist/Reflite-Max-Spline36-Clean.apk | grep -q application-debuggable; then
             echo "Unexpected debuggable APK"; exit 1
           fi
       - uses: actions/upload-artifact@v4
         with:
-          name: Reflite-Max-GLES-Prototype-APK
-          path: dist/Reflite-Max-GLES-Prototype.apk
+          name: Reflite-Max-Spline36-Clean-APK
+          path: dist/Reflite-Max-Spline36-Clean.apk
