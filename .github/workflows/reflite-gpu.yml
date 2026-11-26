@@ -191,21 +191,27 @@ jobs:
       - name: Preserve distinct APK filename
         run: |
           mkdir -p dist
-          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-Max-1080p-Rebuilt.apk
-      - name: Verify APK ZIP alignment and signing
+          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-Max-Spline36-Compat.apk
+      - name: Explicit compatibility signing and verify APK
         run: |
           set -eu
           BT=$(find "${ANDROID_HOME}/build-tools" -name zipalign -type f | sort -V | tail -1)
           test -x "$BT"
-          "$BT" -c -v 4 dist/Reflite-Max-1080p-Rebuilt.apk
-          "$(dirname "$BT")/apksigner" verify --verbose --print-certs dist/Reflite-Max-1080p-Rebuilt.apk
-          "$(dirname "$BT")/aapt" dump badging dist/Reflite-Max-1080p-Rebuilt.apk
-          unzip -t dist/Reflite-Max-1080p-Rebuilt.apk
-          sha256sum dist/Reflite-Max-1080p-Rebuilt.apk
-          if "$(dirname "$BT")/aapt" dump badging dist/Reflite-Max-1080p-Rebuilt.apk | grep -q application-debuggable; then
+          "$BT" -c -v 4 dist/Reflite-Max-Spline36-Compat.apk
+          KS="$RUNNER_TEMP/reflite-compat.jks"
+          keytool -genkeypair -keystore "$KS" -storepass android -keypass android -alias reflite -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Reflite Test" -storetype JKS
+          "$(dirname "$BT")/apksigner" sign --ks "$KS" --ks-key-alias reflite --ks-pass pass:android --key-pass pass:android --v1-signing-enabled true --v2-signing-enabled true --v3-signing-enabled true --v4-signing-enabled false dist/Reflite-Max-Spline36-Compat.apk
+          "$BT" -c -v 4 dist/Reflite-Max-Spline36-Compat.apk
+          "$(dirname "$BT")/apksigner" verify --verbose --print-certs --min-sdk-version 24 dist/Reflite-Max-Spline36-Compat.apk | tee "$RUNNER_TEMP/reflite-verify.txt"
+          grep -F 'Verified using v1 scheme (JAR signing): true' "$RUNNER_TEMP/reflite-verify.txt"
+          grep -F 'Verified using v2 scheme (APK Signature Scheme v2): true' "$RUNNER_TEMP/reflite-verify.txt"
+          "$(dirname "$BT")/aapt" dump badging dist/Reflite-Max-Spline36-Compat.apk
+          unzip -t dist/Reflite-Max-Spline36-Compat.apk
+          sha256sum dist/Reflite-Max-Spline36-Compat.apk
+          if "$(dirname "$BT")/aapt" dump badging dist/Reflite-Max-Spline36-Compat.apk | grep -q application-debuggable; then
             echo "Unexpected debuggable APK"; exit 1
           fi
       - uses: actions/upload-artifact@v4
         with:
-          name: Reflite-Max-1080p-Rebuilt-APK
-          path: dist/Reflite-Max-1080p-Rebuilt.apk
+          name: Reflite-Max-Spline36-Compat-APK
+          path: dist/Reflite-Max-Spline36-Compat.apk
