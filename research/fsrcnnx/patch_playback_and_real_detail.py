@@ -11,7 +11,7 @@ end=s.index('                // Avoid oscillation:',begin)
 s=s[:begin]+'''                // Preserve the original tested fallback. Sustained full-size
                 // FSRCNNX inference on 1080p can stall GPU composition and
                 // leave the audio running while the video stops presenting.
-                if (slowFrames >= 2 && neuralScale > 0.51f) {
+                if (srcH > 800 && slowFrames >= 2 && neuralScale > 0.51f) {
                     neuralScale = if (neuralScale > 0.9f) 0.75f else 0.5f
                     slowFrames = 0
                     Log.i("Reflite GPU", "FSRCNNX performance scale -> " + neuralScale)
