@@ -25,7 +25,7 @@ p=root/"ReferenceScalerView.kt"
 s=p.read_text()
 s=once(s,'context: Context','context: Context, private val maxMode: Boolean = false, private val sourceFps: Float = 24f')
 s=s.replace('FsrcnnxPipeline(trainedModel)','FsrcnnxPipeline(trainedModel, maxMode)').replace('FsrcnnxPipeline(model16)','FsrcnnxPipeline(model16, maxMode)').replace('FsrcnnxPipeline(neuralModel16)','FsrcnnxPipeline(neuralModel16, maxMode)')
-s=s.replace('srcH <= 800 &&','(if (maxMode) sourceFps < 50f else srcH <= 800) &&')
+s=s.replace('srcH <= 800 &&','(if (maxMode) sourceFps < 50f && srcH <= 800 && srcW <= 1280 else srcH <= 800) &&')
 p.write_text(s)
 p=root/"FsrcnnxPipeline.kt"
 s=p.read_text()
