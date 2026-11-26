@@ -1,7 +1,7 @@
-name: Reflite DetailSafe Sharp
+name: Reflite DetailSafe Deconv
 on:
   push:
-    branches: [reflite-detailsafe-clean-sharp]
+    branches: [reflite-detailsafe-deconv]
   workflow_dispatch:
 jobs:
   build:
@@ -128,6 +128,41 @@ jobs:
           PY
       - name: Remove obsolete code and optimize stage bindings without changing picture
         run: python3 research/fsrcnnx/patch_detailsafe_cleanup.py
+      - name: Add bounded directional inverse-blur approximation
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path("proj/app/src/main/java/com/example/liteplayer/FsrcnnxPipeline.kt")
+          s=p.read_text()
+          # Reuse the source cross-neighbourhood already read for anti-ringing.
+          a="                float localMeanY=orig;"
+          assert s.count(a)==1
+          s=s.replace(a,a+"\n                vec4 crossY=vec4(orig);",1)
+          a="                    localMeanY+=l;"
+          assert s.count(a)==1
+          s=s.replace(a,a+"\n                    crossY[i]=l;",1)
+          a="                vec3 reconstructed=clamp(rgb+vec3(finalY-orig),0.,1.);"
+          assert s.count(a)==1
+          s=s.replace(a,"""                // First-order inverse of a mild separable blur; regularize
+                // the correction by directional coherence and noise floor.
+                // Zero DC response; avoid sharpening strong step edges.
+                float center=dot(rawRgb,vec3(.2126,.7152,.0722));
+                vec2 curvature=vec2(2.0*center-crossY.x-crossY.y,
+                                    2.0*center-crossY.z-crossY.w);
+                vec2 slope=abs(vec2(crossY.x-crossY.y,crossY.z-crossY.w));
+                vec2 signal=abs(curvature);
+                vec2 confidence=signal/(signal+0.65*slope+vec2(.016));
+                float fine=dot(curvature*confidence,vec2(.27));
+                float sourceMask=1.0-smoothstep(770.0,910.0,uOriginalFrameHeight);
+                float correction=clamp(fine,-.035,.035)*sourceMask*
+                    (1.0-smoothstep(.22,.48,contrast))*toneMask;
+                // Do not clamp the preexisting output; limit only the new
+                // correction to remaining local headroom.
+                finalY+=clamp(correction,min(0.0,minY-.035-finalY),
+                                           max(0.0,maxY+.035-finalY));
+                vec3 reconstructed=clamp(rgb+vec3(finalY-orig),0.,1.);""",1)
+          p.write_text(s)
+          PY
       - name: Disable debugging without shrinking or obfuscating
         run: |
           python3 - <<'PY'
@@ -189,18 +224,18 @@ jobs:
       - name: Preserve distinct APK filename
         run: |
           mkdir -p dist
-          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-720p-DetailSafe-Sharp.apk
+          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-720p-DetailSafe-Deconv.apk
       - name: Verify APK ZIP alignment and signing
         run: |
           set -eu
           BT=$(find "${ANDROID_HOME}/build-tools" -name zipalign -type f | sort -V | tail -1)
           test -x "$BT"
-          "$BT" -c -v 4 dist/Reflite-720p-DetailSafe-Sharp.apk
-          "$(dirname "$BT")/apksigner" verify --verbose dist/Reflite-720p-DetailSafe-Sharp.apk
-          if "$(dirname "$BT")/aapt" dump badging dist/Reflite-720p-DetailSafe-Sharp.apk | grep -q application-debuggable; then
+          "$BT" -c -v 4 dist/Reflite-720p-DetailSafe-Deconv.apk
+          "$(dirname "$BT")/apksigner" verify --verbose dist/Reflite-720p-DetailSafe-Deconv.apk
+          if "$(dirname "$BT")/aapt" dump badging dist/Reflite-720p-DetailSafe-Deconv.apk | grep -q application-debuggable; then
             echo "Unexpected debuggable APK"; exit 1
           fi
       - uses: actions/upload-artifact@v4
         with:
-          name: Reflite-720p-DetailSafe-Sharp-APK
-          path: dist/Reflite-720p-DetailSafe-Sharp.apk
+          name: Reflite-720p-DetailSafe-Deconv-APK
+          path: dist/Reflite-720p-DetailSafe-Deconv.apk
