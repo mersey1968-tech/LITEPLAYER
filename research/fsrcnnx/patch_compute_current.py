@@ -21,6 +21,8 @@ for name in ["ArtCNN","CuNNy"]:
         # all threads still participate in the upstream shared-memory barrier.
         body=body.replace("imageStore(out_image,", "safeStore(")
         body=body.replace("void hook()", "void main()")
+        body=body.replace("uvec2 local_xy = gl_LocalInvocationID.xy","ivec2 local_xy = ivec2(gl_LocalInvocationID.xy)")
+        body=re.sub(r"\buint ([xy]) = local_xy",r"int \1 = local_xy",body)
         header=f"#version 310 es\nprecision highp float;\nprecision highp int;\nlayout(local_size_x={tile[2]},local_size_y={tile[3]}) in;\nlayout(rgba16f,binding=0) writeonly uniform highp image2D out_image;\nuniform highp ivec2 outputSize;\n"
         header+="void safeStore(highp ivec2 p,vec4 v){if(all(greaterThanEqual(p,ivec2(0)))&&all(lessThan(p,outputSize)))imageStore(out_image,p,v);}\n"
         for n in binds:
