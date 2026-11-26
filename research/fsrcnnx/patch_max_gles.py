@@ -25,7 +25,7 @@ p=root/"ReferenceScalerView.kt"
 s=p.read_text()
 s=once(s,'context: Context','context: Context, private val maxMode: Boolean = false, private val sourceFps: Float = 24f')
 s=s.replace('FsrcnnxPipeline(trainedModel)','FsrcnnxPipeline(trainedModel, maxMode)').replace('FsrcnnxPipeline(model16)','FsrcnnxPipeline(model16, maxMode)').replace('FsrcnnxPipeline(neuralModel16)','FsrcnnxPipeline(neuralModel16, maxMode)')
-s=s.replace('srcH <= 800 &&','(if (maxMode) sourceFps < 50f else srcH <= 800) &&')
+s=s.replace('srcH <= 800 &&','(if (maxMode) sourceFps < 50f && srcH <= 800 && srcW <= 1280 else srcH <= 800) &&')
 p.write_text(s)
 p=root/"FsrcnnxPipeline.kt"
 s=p.read_text()
@@ -33,21 +33,26 @@ s=once(s,'internal class FsrcnnxPipeline(raw: String)','internal class FsrcnnxPi
 s=once(s,'private fun allocate(w:Int,h:Int):Target','private fun allocate(w:Int,h:Int,single:Boolean=false):Target')
 s=once(s,'GLES30.GL_RGBA16F,w,h,0,GLES30.GL_RGBA,GLES30.GL_HALF_FLOAT','if(single) GLES30.GL_R16F else GLES30.GL_RGBA16F,w,h,0,if(single) GLES30.GL_RED else GLES30.GL_RGBA,GLES30.GL_HALF_FLOAT')
 s=once(s,'else allocate(tw,th)','else allocate(tw,th,maxMode && idx == stages.lastIndex)')
-# Use strict nearest-neighbour extrema for final secondary scaling, only in Max.
-s=once(s,'return clamp(cubic,lo-0.025,hi+0.025);','''return clamp(cubic,lo-0.025,hi+0.025);''')
-# Inject mode-specific composite GLSL before shader compilation, retaining original shader in standard mode.
+# Final composition: remove cubic reconstruction entirely. Hardware linear
+# sampling of the trained 2x luma output is the low-cost baseline.
+import re
+s,n=re.subn(r'float cubicNeural\(vec2 pos\)\s*\{.*?\n\s*\}', '', s,count=1,flags=re.S)
+assert n==1
+s=once(s,'uCubicNeural>0.5?cubicNeural(uv):texture(uNeural,uv).r','texture(uNeural,uv).r')
+# Keep standard mode's existing detail math. Max alone gets texture recovery.
 s=once(s,'        composite=link(vertexShader,"""','        val compositeSource="""')
 s=once(s,'        """)\n        prepareGeometry()','''        """
-        val maxSource = compositeSource.replace("return clamp(cubic,lo-0.025,hi+0.025);", """
-            ivec2 b0=ivec2(base);
-            ivec2 lim=ivec2(uNeuralSize)-ivec2(1);
-            float n0=texelFetch(uNeural,clamp(b0,ivec2(0),lim),0).r;
-            float n1=texelFetch(uNeural,clamp(b0+ivec2(1,0),ivec2(0),lim),0).r;
-            float n2=texelFetch(uNeural,clamp(b0+ivec2(0,1),ivec2(0),lim),0).r;
-            float n3=texelFetch(uNeural,clamp(b0+ivec2(1,1),ivec2(0),lim),0).r;
-            return clamp(cubic,min(min(n0,n1),min(n2,n3)),max(max(n0,n1),max(n2,n3)));
-        """.trimIndent())
-        composite=link(vertexShader,if(maxMode) maxSource else compositeSource)
+        val textureSource=compositeSource
+            .replace("float modelResidual=clamp(protectedY-orig,-.095,.095);",
+                "float rawY=dot(rawRgb,vec3(.2126,.7152,.0722)); float modelResidual=clamp(y-rawY,-.095,.095);")
+            .replace("smoothstep(.015,.055,contrast)", "smoothstep(.007,.030,contrast)")
+            .replace("finalY=clamp(finalY+microBoost*textureMask*edgeMask*toneMask,",
+                "finalY=clamp(finalY+microBoost*textureMask*edgeMask*toneMask,")
+            .replace("minY-.025,maxY+.025);",
+                "minY-mix(.025,.055,(1.0-edge)*textureGate),maxY+mix(.025,.055,(1.0-edge)*textureGate));")
+        check(textureSource.contains("float rawY=") && textureSource.contains("smoothstep(.007,.030,contrast)") && textureSource.contains("minY-mix(.025,.055"))
+        composite=link(vertexShader,if(maxMode) textureSource else compositeSource)
         prepareGeometry()''')
+assert 'cubicNeural(' not in s
 p.write_text(s)
-print("Max first-stage prototype: fps-selected model, single-channel final target and strict anti-ringing; six-frame sync preserved")
+print("Texture recovery: raw-source learned residual, softer texture threshold, adaptive output headroom, linear final resampling; no new fetches.")
