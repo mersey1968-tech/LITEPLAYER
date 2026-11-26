@@ -17,7 +17,7 @@ once("    private var composite=0", """    private var composite=0
     private var splitH=0
     private fun releaseSplit() {
         if(splitFbo!=0) GLES30.glDeleteFramebuffers(1,intArrayOf(splitFbo),0)
-        if(sourceY!=0) GLES30.glDeleteTextures(1,intArrayOf(sourceY,sourceUV),0)
+        if(sourceY!=0) GLES30.glDeleteTextures(2,intArrayOf(sourceY,sourceUV),0)
         splitFbo=0;sourceY=0;sourceUV=0;splitW=0;splitH=0
     }
     private fun ensureSplit(w:Int,h:Int) {
@@ -134,7 +134,7 @@ s=s[:a]+'''        splitProgram=link(vertexShader,"""#version 300 es
                 return clamp(sum,lo,hi);
             }
             // Two independent integer hashes produce spatial TPDF dither.
-            uint hash32(uint n) {
+            highp uint hash32(highp uint n) {
                 n ^= n >> 16u; n *= 0x7feb352du;
                 n ^= n >> 15u; n *= 0x846ca68bu; return n^(n>>16u);
             }
@@ -153,7 +153,7 @@ s=s.replace('(drawLocations+attributeLocation(composite)).distinct()', '(drawLoc
 # All inference modes use R16F for final luma.
 s=s.replace('maxMode && idx == stages.lastIndex','idx == stages.lastIndex')
 # Preserve duplicate-frame reuse; split once for each new input.
-once("        if (!canReuse) {","        if (!canReuse) {\\n        splitFrame(video,matrix,w,h)")
+once("        if (!canReuse) {","        if (!canReuse) {\n        splitFrame(video,matrix,w,h)")
 s=s.replace('if(sourceIndex<0)video else targets[sourceIndex].texture','if(sourceIndex<0)sourceY else targets[sourceIndex].texture')
 s=s.replace('val bindings=if(sourceIndex<0)boundExternal else bound2D','val bindings=bound2D')
 s=s.replace('if(sourceIndex<0)GLES11Ext.GL_TEXTURE_EXTERNAL_OES else GLES30.GL_TEXTURE_2D','GLES30.GL_TEXTURE_2D')
@@ -176,7 +176,7 @@ s=s[:a]+'''        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER,outputFbo)
         GLES30.glGetIntegerv(GLES30.GL_RED_BITS,bits,0)
         setUniform1f(composite,"uDitherStep",if(bits[0]>=10)1f/1023f else 1f/255f)
 '''+s[b:]
-once("    fun close(){","    fun close(){\\n        releaseSplit()\\n        if(splitProgram!=0)GLES30.glDeleteProgram(splitProgram)")
+once("    fun close(){","    fun close(){\n        releaseSplit()\n        if(splitProgram!=0)GLES30.glDeleteProgram(splitProgram)")
 # Correct matching vertex varying precision.
 s=s.replace('in vec2 position;out vec2 uv;', 'in highp vec2 position;out highp vec2 uv;')
 p.write_text(s)
