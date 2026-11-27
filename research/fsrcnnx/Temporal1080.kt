@@ -124,10 +124,14 @@ internal class Temporal1080 {
         check(G.glCheckFramebufferStatus(G.GL_FRAMEBUFFER)==G.GL_FRAMEBUFFER_COMPLETE)
         return t
     }
+    // Uniform locations remain fixed for the lifetime of each linked program.
+    private val uniformLocations=HashMap<Int,HashMap<String,Int>>()
+    private fun location(p:Int,name:String):Int =
+        uniformLocations.getOrPut(p){HashMap()}.getOrPut(name){G.glGetUniformLocation(p,name)}
     private fun bind(p:Int,name:String,unit:Int,tex:Int,external:Boolean=false){
         G.glActiveTexture(G.GL_TEXTURE0+unit)
         G.glBindTexture(if(external)GLES11Ext.GL_TEXTURE_EXTERNAL_OES else G.GL_TEXTURE_2D,tex)
-        G.glUniform1i(G.glGetUniformLocation(p,name),unit)
+        G.glUniform1i(location(p,name),unit)
     }
     private fun begin(p:Int,t:Target){
         G.glBindFramebuffer(G.GL_FRAMEBUFFER,t.fbo);G.glViewport(0,0,t.w,t.h);G.glUseProgram(p)
@@ -152,13 +156,13 @@ internal class Temporal1080 {
             val out=targets[3+index];val history=targets[3+1-index]
             val ready=valid && timestamp>lastTime && timestamp-lastTime<150000000L
             begin(capture,current);bind(capture,"video",0,video,true)
-            G.glUniformMatrix4fv(G.glGetUniformLocation(capture,"matrix"),1,false,matrix,0);draw()
+            G.glUniformMatrix4fv(location(capture,"matrix"),1,false,matrix,0);draw()
             if(ready){
                 begin(motion,flow);bind(motion,"cur",0,current.tex);bind(motion,"old",1,old.tex);draw()
             }
             begin(reconstruct,out);bind(reconstruct,"cur",0,current.tex);bind(reconstruct,"old",1,old.tex)
             bind(reconstruct,"flow",2,flow.tex);bind(reconstruct,"history",3,history.tex)
-            G.glUniform1f(G.glGetUniformLocation(reconstruct,"ready"),if(ready)1f else 0f);draw()
+            G.glUniform1f(location(reconstruct,"ready"),if(ready)1f else 0f);draw()
             lastTime=timestamp;valid=true;index=1-index
         }
         val out=targets[3+1-index]
@@ -169,5 +173,5 @@ internal class Temporal1080 {
         draw()
         check(G.glGetError()==G.GL_NO_ERROR){"Temporal GPU render failed"}
     }
-    fun close(){releaseTargets();programs.forEach{G.glDeleteProgram(it)};programs.clear()}
+    fun close(){releaseTargets();programs.forEach{G.glDeleteProgram(it)};programs.clear();uniformLocations.clear()}
 }
