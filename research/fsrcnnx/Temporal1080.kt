@@ -95,7 +95,10 @@ internal class Temporal1080 {
                 result=clamp(result+trust*proximity*.25*innovation,lo-.015,hi+.015);
             }
             vec3 rgb=clamp(c+vec3(result-lum),0.,1.);
-            color=vec4(rgb,1.);
+            // Restrained shadow-only density; no saturation or highlight adjustment.
+            float Y=y(rgb);
+            float toe=.12*(1.-smoothstep(.04,.38,Y))*smoothstep(0.,.035,Y);
+            color=vec4(rgb*(1.-toe),1.);
         }
     """)
     private fun target(w:Int,h:Int,fp:Boolean=false):Target {
