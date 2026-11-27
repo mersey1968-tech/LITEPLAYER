@@ -8,8 +8,8 @@ def once(a,b):
     global s
     assert s.count(a)==1,(a,s.count(a))
     s=s.replace(a,b,1)
-once("    private var temporal720Announced = false","    private var temporal720Announced = false\n    private var temporal1080: Temporal1080? = null\n    private var temporal1080Failed = false\n    private var temporal1080Announced = false")
-once("            temporal720Announced = false","            temporal720Announced = false\n            temporal1080 = null\n            temporal1080Failed = false\n            temporal1080Announced = false")
+once("    private var temporal720Announced = false","    private var temporal720Announced = false\n    private var temporal1080: Temporal1080? = null\n    private var temporal1080Failed = false\n    private var temporal1080Announced = false\n    @Volatile var onCinemaReady: (() -> Unit)? = null\n    private var cinemaFrameCount = 0")
+once("            temporal720Announced = false","            temporal720Announced = false\n            temporal1080 = null\n            temporal1080Failed = false\n            temporal1080Announced = false\n            cinemaFrameCount = 0")
 once("""            if (!temporalRendered) {
                 selected?.render""","""            if (srcW == 1920 && srcH == 1080 && !diagnosticEnabled && !temporal1080Failed) {
                 try {
@@ -17,6 +17,13 @@ once("""            if (!temporalRendered) {
                     temporal.render(texVideo, transform, outW, outH,
                         surfaceTexture?.timestamp ?: 0L, newFrame)
                     temporalRendered = true
+                    if (newFrame && onCinemaReady != null) {
+                        cinemaFrameCount++
+                        if (cinemaFrameCount % 48 == 0 && cinemaFrameCount <= 480) {
+                            GLES30.glFinish()
+                            post { onCinemaReady?.invoke() }
+                        }
+                    }
                     if (!temporal1080Announced) {
                         temporal1080Announced = true
                         post { android.widget.Toast.makeText(context, "Temporal 1080p Cinema active", android.widget.Toast.LENGTH_SHORT).show() }
