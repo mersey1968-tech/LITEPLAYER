@@ -106,7 +106,7 @@ internal class Temporal720 {
         void main(){
             vec3 rgb=texture(image,uv).rgb;
             float Y=dot(rgb,vec3(.2126,.7152,.0722));
-            float scale=1.-.12*(1.-smoothstep(0.,.28,Y));
+            float scale=1.-.20*(1.-smoothstep(0.,.28,Y));
             color=vec4(rgb*scale,1.);
         }
     """)
