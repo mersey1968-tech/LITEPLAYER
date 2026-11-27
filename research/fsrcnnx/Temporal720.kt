@@ -96,7 +96,9 @@ internal class Temporal720 {
             }
             vec3 rgb=clamp(c+vec3(result-lum),0.,1.);
             float Y=y(rgb);vec3 chroma=rgb-vec3(Y);
-            color=vec4(clamp(rgb+.18*chroma+vec3(.23*Y*(1.-Y)*(2.*Y-1.)),0.,1.),1.);
+            // Preserve zero and near-black separation; reduce lifted shadows.
+            float toe=.24*(1.-smoothstep(.05,.48,Y))*smoothstep(0.,.045,Y);
+            color=vec4(clamp(rgb*(1.-toe)+.21*chroma+vec3(.26*Y*(1.-Y)*(2.*Y-1.)),0.,1.),1.);
         }
     """)
     private fun target(w:Int,h:Int,fp:Boolean=false):Target {
