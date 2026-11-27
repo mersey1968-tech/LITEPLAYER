@@ -99,6 +99,17 @@ internal class Temporal720 {
             color=vec4(clamp(rgb+.18*chroma+vec3(.23*Y*(1.-Y)*(2.*Y-1.)),0.,1.),1.);
         }
     """)
+    // Display-only shadow correction: never feed adjusted blacks into temporal history.
+    private val present=program("""#version 300 es
+        precision highp float;in vec2 uv;out vec4 color;
+        uniform sampler2D image;
+        void main(){
+            vec3 rgb=texture(image,uv).rgb;
+            float Y=dot(rgb,vec3(.2126,.7152,.0722));
+            float scale=1.-.12*(1.-smoothstep(0.,.28,Y));
+            color=vec4(rgb*scale,1.);
+        }
+    """)
     private fun target(w:Int,h:Int,fp:Boolean=false):Target {
         val ids=IntArray(1);G.glGenTextures(1,ids,0);val tex=ids[0]
         G.glBindTexture(G.GL_TEXTURE_2D,tex)
@@ -152,10 +163,11 @@ internal class Temporal720 {
             lastTime=timestamp;valid=true;index=1-index
         }
         val out=targets[3+1-index]
-        G.glBindFramebuffer(G.GL_READ_FRAMEBUFFER,out.fbo)
-        G.glBindFramebuffer(G.GL_DRAW_FRAMEBUFFER,0)
-        G.glBlitFramebuffer(0,0,w,h,0,0,w,h,G.GL_COLOR_BUFFER_BIT,G.GL_NEAREST)
         G.glBindFramebuffer(G.GL_FRAMEBUFFER,0)
+        G.glViewport(0,0,w,h)
+        G.glUseProgram(present)
+        bind(present,"image",0,out.tex)
+        draw()
         check(G.glGetError()==G.GL_NO_ERROR){"Temporal GPU render failed"}
     }
     fun close(){releaseTargets();programs.forEach{G.glDeleteProgram(it)};programs.clear()}
