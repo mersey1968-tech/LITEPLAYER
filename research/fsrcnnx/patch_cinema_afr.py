@@ -14,17 +14,33 @@ once("""        val fps = videoFps
         if (fps <= 0f || !fps.isFinite()) return
         val surface = scalerView?.holder?.surface ?: (playerView.videoSurfaceView as? SurfaceView)?.holder?.surface""")
 once("""        if (Build.VERSION.SDK_INT >= 31 && kotlin.math.abs(fps-25f) < 0.25f) {""","""        if (Build.VERSION.SDK_INT >= 31 && (cinema || kotlin.math.abs(fps-25f) < 0.25f)) {""")
-# Reapply only after the existing six-frame rewind. No extra seek.
-once("""                                        activePlayer.seekTo(position - distance)""","""                                        activePlayer.seekTo(position - distance)
-                                        if (fmt.width == 1920 && fmt.height == 1080) {
-                                            handler.postDelayed({
-                                                if (player === activePlayer && scalerView === gpu &&
-                                                    referenceScalerEnabled && !isFinishing) {
-                                                    lastFrameRateSurface = null
-                                                    applyFrameRate()
-                                                }
-                                            }, 350L)
-                                        }""")
+# Arm a bounded one-time rewind on surface handoff, independent of first-frame callback.
+once("""                    if (fmt.height > 800) {
+                        gpu.onFirstNeuralFrame = {""","""                    if (fmt.height > 800) {
+                        val scheduleStableRewind = {""")
+once("""                            val deadline = android.os.SystemClock.uptimeMillis() + 10000L""","""                            val deadline = android.os.SystemClock.uptimeMillis() + 15000L
+                            var stableSince = 0L""")
+once("""                                    if (activePlayer.playWhenReady && activePlayer.isPlaying &&
+                                        position >= distance) {
+                                        activePlayer.seekTo(position - distance)
+                                    } else {
+                                        handler.postDelayed(this, 40L)
+                                    }""","""                                    val now = android.os.SystemClock.uptimeMillis()
+                                    if (activePlayer.playWhenReady && activePlayer.isPlaying &&
+                                        position >= distance) {
+                                        if (stableSince == 0L) stableSince = now
+                                        if (now - stableSince >= 1500L) {
+                                            activePlayer.seekTo(position - distance)
+                                            return
+                                        }
+                                    } else stableSince = 0L
+                                    handler.postDelayed(this, 100L)""")
+once("""                            rewindWhenReady.run()
+                        }
+                    }""","""                            handler.postDelayed(rewindWhenReady, 500L)
+                        }
+                        scheduleStableRewind()
+                    }""")
 # Guard against asynchronous estimated FPS overwriting known source metadata.
 once("""            if (found > 0f) runOnUiThread { videoFps = found; applyFrameRate() }""","""            if (found > 0f) runOnUiThread {
                 val fmt = resolvedScalerFormat()
