@@ -1,7 +1,7 @@
-name: Reflite 1080 AFR First
+name: Reflite RC1 Optimized
 on:
   push:
-    branches: [reflite-1080-afr-first]
+    branches: [reflite-rc1-optimized]
   workflow_dispatch:
 jobs:
   build:
@@ -197,18 +197,18 @@ jobs:
       - name: Preserve distinct APK filename
         run: |
           mkdir -p dist
-          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-1080-AFRFirst.apk
+          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-RC1-Optimized.apk
       - name: Verify APK ZIP alignment and signing
         run: |
           set -eu
           BT=$(find "${ANDROID_HOME}/build-tools" -name zipalign -type f | sort -V | tail -1)
           test -x "$BT"
-          "$BT" -c -v 4 dist/Reflite-1080-AFRFirst.apk
-          "$(dirname "$BT")/apksigner" verify --verbose dist/Reflite-1080-AFRFirst.apk
-          if "$(dirname "$BT")/aapt" dump badging dist/Reflite-1080-AFRFirst.apk | grep -q application-debuggable; then
+          "$BT" -c -v 4 dist/Reflite-RC1-Optimized.apk
+          "$(dirname "$BT")/apksigner" verify --verbose dist/Reflite-RC1-Optimized.apk
+          if "$(dirname "$BT")/aapt" dump badging dist/Reflite-RC1-Optimized.apk | grep -q application-debuggable; then
             echo "Unexpected debuggable APK"; exit 1
           fi
       - uses: actions/upload-artifact@v4
         with:
-          name: Reflite-1080-AFRFirst-APK
-          path: dist/Reflite-1080-AFRFirst.apk
+          name: Reflite-RC1-Optimized-APK
+          path: dist/Reflite-RC1-Optimized.apk
