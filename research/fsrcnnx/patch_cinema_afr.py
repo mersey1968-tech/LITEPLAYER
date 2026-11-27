@@ -14,33 +14,37 @@ once("""        val fps = videoFps
         if (fps <= 0f || !fps.isFinite()) return
         val surface = scalerView?.holder?.surface ?: (playerView.videoSurfaceView as? SurfaceView)?.holder?.surface""")
 once("""        if (Build.VERSION.SDK_INT >= 31 && kotlin.math.abs(fps-25f) < 0.25f) {""","""        if (Build.VERSION.SDK_INT >= 31 && (cinema || kotlin.math.abs(fps-25f) < 0.25f)) {""")
-# Arm a bounded one-time rewind on surface handoff, independent of first-frame callback.
+# Replace wall-clock rewind with a completed-frame driven callback for 1080p.
 once("""                    if (fmt.height > 800) {
-                        gpu.onFirstNeuralFrame = {""","""                    if (fmt.height > 800) {
-                        val scheduleStableRewind = {""")
-once("""                            val deadline = android.os.SystemClock.uptimeMillis() + 10000L""","""                            val deadline = android.os.SystemClock.uptimeMillis() + 15000L
-                            var stableSince = 0L""")
-once("""                                    if (activePlayer.playWhenReady && activePlayer.isPlaying &&
-                                        position >= distance) {
-                                        activePlayer.seekTo(position - distance)
-                                    } else {
-                                        handler.postDelayed(this, 40L)
-                                    }""","""                                    val now = android.os.SystemClock.uptimeMillis()
-                                    if (activePlayer.playWhenReady && activePlayer.isPlaying &&
-                                        position >= distance) {
-                                        if (stableSince == 0L) stableSince = now
-                                        if (now - stableSince >= 1500L) {
-                                            activePlayer.seekTo(position - distance)
-                                            return
-                                        }
-                                    } else stableSince = 0L
-                                    handler.postDelayed(this, 100L)""")
-once("""                            rewindWhenReady.run()
+                        gpu.onFirstNeuralFrame = {""","""                    if (fmt.width == 1920 && fmt.height == 1080) {
+                        var afrRetried = false
+                        gpu.onCinemaReady = cinemaReady@{
+                            if (player !== activePlayer || scalerView !== gpu ||
+                                !referenceScalerEnabled || isFinishing) {
+                                gpu.onCinemaReady = null
+                                return@cinemaReady
+                            }
+                            val fps = resolvedScalerFormat()?.frameRate?.takeIf { it > 0f && it.isFinite() }
+                                ?: videoFps.takeIf { it > 0f && it.isFinite() }
+                                ?: return@cinemaReady
+                            val hz = window.decorView.display?.refreshRate ?: return@cinemaReady
+                            val multiple = kotlin.math.round(hz / fps).coerceAtLeast(1f)
+                            if (kotlin.math.abs(hz - multiple * fps) > 0.15f) {
+                                if (!afrRetried) {
+                                    afrRetried = true
+                                    lastFrameRateSurface = null
+                                    applyFrameRate()
+                                }
+                                return@cinemaReady
+                            }
+                            val distance = (6000.0 / fps).toLong().coerceAtLeast(1L)
+                            val position = activePlayer.currentPosition
+                            if (!activePlayer.isPlaying || position < distance) return@cinemaReady
+                            gpu.onCinemaReady = null
+                            activePlayer.seekTo(position - distance)
                         }
-                    }""","""                            handler.postDelayed(rewindWhenReady, 500L)
-                        }
-                        scheduleStableRewind()
-                    }""")
+                    } else if (fmt.height > 800) {
+                        gpu.onFirstNeuralFrame = {""")
 # Guard against asynchronous estimated FPS overwriting known source metadata.
 once("""            if (found > 0f) runOnUiThread { videoFps = found; applyFrameRate() }""","""            if (found > 0f) runOnUiThread {
                 val fmt = resolvedScalerFormat()
