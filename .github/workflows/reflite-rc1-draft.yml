@@ -1,0 +1,37 @@
+name: Prepare Reflite RC1 draft release
+on:
+  push:
+    branches: [reflite-release]
+    paths: ['.github/workflows/reflite-rc1-draft.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: read
+jobs:
+  draft:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Retrieve original approved build and verify archive
+        run: |
+          set -euo pipefail
+          gh api repos/"$GH_REPO"/actions/artifacts/15224743064/zip > rc1.zip
+          echo 'aa219467989f68c1dc12f7498638dd71a07b3a8f13b96e48f8d9e92b518cad16  rc1.zip' | sha256sum -c -
+          unzip -t rc1.zip
+          unzip -p rc1.zip Reflite-1080-AFRFirst.apk > Reflite-RC1.apk
+          unzip -t Reflite-RC1.apk
+          sha256sum Reflite-RC1.apk > Reflite-RC1.apk.sha256
+      - name: Create draft only, never publish automatically
+        run: |
+          set -euo pipefail
+          if gh release view Reflite-RC1 --json isDraft >/tmp/reflite-release.json 2>/dev/null; then
+            test "$(jq -r .isDraft /tmp/reflite-release.json)" = true
+            echo 'Existing draft found; leaving its assets unchanged.'
+          else
+            gh release create Reflite-RC1 Reflite-RC1.apk Reflite-RC1.apk.sha256 \
+              --draft --prerelease --target 2d5b19a3774bfae40406cdda5ee3125a23e4a59d \
+              --title 'Reflite RC1 — Public Beta (draft)' \
+              --notes 'Original AFRFirst test build, renamed only. NVIDIA Shield Pro is the primary tested device. Known issue: minor 1080p startup hitch before synchronization rewind. Do not publish until third-party license, corresponding source, and codec compliance reviews are complete.'
+          fi
