@@ -1,7 +1,7 @@
-name: Reflite Temporal Blacks
+name: Reflite Temporal Blacks20
 on:
   push:
-    branches: [reflite-temporal-blacks]
+    branches: [reflite-temporal-blacks20]
   workflow_dispatch:
 jobs:
   build:
@@ -197,18 +197,18 @@ jobs:
       - name: Preserve distinct APK filename
         run: |
           mkdir -p dist
-          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-Temporal-Blacks.apk
+          cp proj/app/build/outputs/apk/debug/app-debug.apk dist/Reflite-Temporal-Blacks20.apk
       - name: Verify APK ZIP alignment and signing
         run: |
           set -eu
           BT=$(find "${ANDROID_HOME}/build-tools" -name zipalign -type f | sort -V | tail -1)
           test -x "$BT"
-          "$BT" -c -v 4 dist/Reflite-Temporal-Blacks.apk
-          "$(dirname "$BT")/apksigner" verify --verbose dist/Reflite-Temporal-Blacks.apk
-          if "$(dirname "$BT")/aapt" dump badging dist/Reflite-Temporal-Blacks.apk | grep -q application-debuggable; then
+          "$BT" -c -v 4 dist/Reflite-Temporal-Blacks20.apk
+          "$(dirname "$BT")/apksigner" verify --verbose dist/Reflite-Temporal-Blacks20.apk
+          if "$(dirname "$BT")/aapt" dump badging dist/Reflite-Temporal-Blacks20.apk | grep -q application-debuggable; then
             echo "Unexpected debuggable APK"; exit 1
           fi
       - uses: actions/upload-artifact@v4
         with:
-          name: Reflite-Temporal-Blacks-APK
-          path: dist/Reflite-Temporal-Blacks.apk
+          name: Reflite-Temporal-Blacks20-APK
+          path: dist/Reflite-Temporal-Blacks20.apk
