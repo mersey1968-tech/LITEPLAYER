@@ -78,7 +78,7 @@ internal class Temporal720 {
             float b=y(texture(cur,uv-vec2(0.,pt.y)).rgb),t=y(texture(cur,uv+vec2(0.,pt.y)).rgb);
             float lum=y(c),lo=min(lum,min(min(l,r),min(b,t))),hi=max(lum,max(max(l,r),max(b,t)));
             float detail=lum-.25*(l+r+b+t);
-            float base=clamp(lum+.28*detail,lo-.018,hi+.018);
+            float base=clamp(lum+.85*detail,lo-.030,hi+.030);
             float result=base;
             if(ready>.5){
                 vec3 m=texture(flow,uv).rgb;vec2 q=uv+m.xy*pt;
@@ -88,15 +88,15 @@ internal class Temporal720 {
                 float fractional=length(fract(m.xy+.5)-.5);
                 float trust=m.z*(1.-smoothstep(.016,.070,residual))*smoothstep(.04,.32,fractional);
                 if(any(lessThan(q,pt))||any(greaterThan(q,1.-pt)))trust=0.;
-                result=mix(base,clamp(prior,lo-.018,hi+.018),.35*trust);
+                result=mix(base,clamp(prior,lo-.030,hi+.030),.48*trust);
                 vec2 sampleCenter=(floor(q/pt)+.5)*pt;
                 float innovation=y(texture(old,sampleCenter).rgb)-observed;
                 float proximity=1.-smoothstep(.10,.70,length((q-sampleCenter)/pt));
-                result=clamp(result+trust*proximity*.35*innovation,lo-.025,hi+.025);
+                result=clamp(result+trust*proximity*.65*innovation,lo-.040,hi+.040);
             }
             vec3 rgb=clamp(c+vec3(result-lum),0.,1.);
             float Y=y(rgb);vec3 chroma=rgb-vec3(Y);
-            color=vec4(clamp(rgb+.06*chroma+vec3(.08*Y*(1.-Y)*(2.*Y-1.)),0.,1.),1.);
+            color=vec4(clamp(rgb+.14*chroma+vec3(.18*Y*(1.-Y)*(2.*Y-1.)),0.,1.),1.);
         }
     """)
     private fun target(w:Int,h:Int,fp:Boolean=false):Target {
