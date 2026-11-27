@@ -1,0 +1,37 @@
+name: Collect RC1 compliance materials
+on:
+  push:
+    branches: [reflite-release]
+    paths: ['.github/workflows/reflite-compliance.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Collect complete license texts and pinned upstream source
+        run: |
+          set -euo pipefail
+          mkdir -p compliance/licenses compliance/source
+          curl -fLsS https://www.gnu.org/licenses/gpl-3.0.txt -o compliance/licenses/GPL-3.0.txt
+          curl -fLsS https://www.gnu.org/licenses/lgpl-3.0.txt -o compliance/licenses/LGPL-3.0.txt
+          curl -fLsS https://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt -o compliance/licenses/LGPL-2.1.txt
+          curl -fLsS https://www.apache.org/licenses/LICENSE-2.0.txt -o compliance/licenses/Apache-2.0.txt
+          git clone --branch 1.7.1-0.9.0 --depth 1 --recurse-submodules https://github.com/anilbeesetti/nextlib.git upstream-nextlib
+          git -C upstream-nextlib rev-parse HEAD > compliance/nextlib-commit.txt
+          git -C upstream-nextlib submodule status --recursive > compliance/nextlib-submodules.txt
+          tar --exclude=.git -czf compliance/source/nextlib-1.7.1-0.9.0.tar.gz upstream-nextlib
+          curl -fLsS https://ffmpeg.org/releases/ffmpeg-6.0.tar.xz -o compliance/source/ffmpeg-6.0.tar.xz
+          curl -fLsS https://repo.maven.apache.org/maven2/io/github/anilbeesetti/nextlib-media3ext/1.7.1-0.9.0/nextlib-media3ext-1.7.1-0.9.0.pom -o compliance/nextlib.pom
+          curl -fLsS https://repo.maven.apache.org/maven2/eu/agno3/jcifs/jcifs-ng/2.1.10/jcifs-ng-2.1.10-sources.jar -o compliance/source/jcifs-ng-2.1.10-sources.jar
+          curl -fLsS https://repo.maven.apache.org/maven2/io/github/anilbeesetti/nextlib-media3ext/1.7.1-0.9.0/nextlib-media3ext-1.7.1-0.9.0.aar -o nextlib.aar
+          unzip -l nextlib.aar > compliance/nextlib-aar-inventory.txt
+          find compliance -type f -print0 | sort -z | xargs -0 sha256sum > checksums.txt
+          mv checksums.txt compliance/
+          cp REFLITE-NOTICES.md REFLITE-SOURCE.md REFLITE-RC1-BINARY-AUDIT.md compliance/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RC1-compliance-materials-review-only
+          path: compliance/
