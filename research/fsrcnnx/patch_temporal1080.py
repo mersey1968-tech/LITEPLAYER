@@ -10,6 +10,24 @@ def once(a,b):
     s=s.replace(a,b,1)
 once("    private var temporal720Announced = false","    private var temporal720Announced = false\n    private var temporal1080: Temporal1080? = null\n    private var temporal1080Failed = false\n    private var temporal1080Announced = false\n    @Volatile var onCinemaReady: (() -> Unit)? = null\n    private var cinemaFrameCount = 0")
 once("            temporal720Announced = false","            temporal720Announced = false\n            temporal1080 = null\n            temporal1080Failed = false\n            temporal1080Announced = false\n            cinemaFrameCount = 0")
+# Compile the temporal programs on the GL thread before offering the decoder surface.
+# Keep the existing FSRCNNX fallback and its preparation intact.
+once("""            if (srcH > 800) {
+                neuralPipeline?.prepareTargets(srcW,srcH)
+            }""","""            if (srcH > 800) {
+                neuralPipeline?.prepareTargets(srcW,srcH)
+            }
+            if (srcW == 1920 && srcH == 1080 && !diagnosticEnabled && temporal1080 == null) {
+                try {
+                    temporal1080 = Temporal1080()
+                } catch (error: Throwable) {
+                    // The original first-frame initialization and fallback remain available.
+                    temporal1080 = null
+                    GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
+                    repeat(16) { if (GLES30.glGetError() == GLES30.GL_NO_ERROR) return@repeat }
+                }
+            }""")
+
 once("""            if (!temporalRendered) {
                 selected?.render""","""            if (srcW == 1920 && srcH == 1080 && !diagnosticEnabled && !temporal1080Failed) {
                 try {
