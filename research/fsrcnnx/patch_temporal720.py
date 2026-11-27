@@ -8,9 +8,9 @@ def once(a,b):
     global s
     assert s.count(a)==1,(a,s.count(a))
     s=s.replace(a,b,1)
-once("    private var neuralScale = 1.0f","    private var neuralScale = 1.0f\n    private var temporal720: Temporal720? = null\n    private var temporal720Failed = false")
+once("    private var neuralScale = 1.0f","    private var neuralScale = 1.0f\n    private var temporal720: Temporal720? = null\n    private var temporal720Failed = false\n    private var temporal720Announced = false")
 # New context invalidates old texture names; old context owns its allocations.
-once("            failed = false","            failed = false\n            temporal720 = null\n            temporal720Failed = false")
+once("            failed = false","            failed = false\n            temporal720 = null\n            temporal720Failed = false\n            temporal720Announced = false")
 a="""            selected?.render(texVideo, transform, workW, workH, outW, outH,
                 diagnosticEnabled, false, originalFrameHeight=srcH, reuseInference=!newFrame)"""
 b="""            var temporalRendered = false
@@ -20,8 +20,13 @@ b="""            var temporalRendered = false
                     temporal.render(texVideo, transform, outW, outH,
                         surfaceTexture?.timestamp ?: 0L, newFrame)
                     temporalRendered = true
+                    if (!temporal720Announced) {
+                        temporal720Announced = true
+                        post { android.widget.Toast.makeText(context, "Temporal 720p active", android.widget.Toast.LENGTH_SHORT).show() }
+                    }
                 } catch (error: Throwable) {
                     temporal720Failed = true
+                    post { android.widget.Toast.makeText(context, "Temporal unavailable: FSRCNNX fallback", android.widget.Toast.LENGTH_LONG).show() }
                     temporal720?.close()
                     temporal720 = null
                     GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
